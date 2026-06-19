@@ -1,0 +1,41 @@
+import { createContext, useContext, useState } from 'react';
+import { loginRequest } from '../api/auth';
+
+const AuthContext = createContext(null);
+
+function parseToken(token) {
+  try {
+    return JSON.parse(atob(token.split('.')[1]));
+  } catch {
+    return null;
+  }
+}
+
+export function AuthProvider({ children }) {
+  const [token, setToken] = useState(() => localStorage.getItem('elysium_token'));
+  const [user, setUser] = useState(() => {
+    const t = localStorage.getItem('elysium_token');
+    return t ? parseToken(t) : null;
+  });
+
+  const login = async (email, password) => {
+    const data = await loginRequest(email, password);
+    localStorage.setItem('elysium_token', data.access_token);
+    setToken(data.access_token);
+    setUser(parseToken(data.access_token));
+  };
+
+  const logout = () => {
+    localStorage.removeItem('elysium_token');
+    setToken(null);
+    setUser(null);
+  };
+
+  return (
+    <AuthContext.Provider value={{ token, user, login, logout, isAuthenticated: !!token }}>
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+export const useAuth = () => useContext(AuthContext);
