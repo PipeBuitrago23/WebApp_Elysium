@@ -15,8 +15,8 @@ export default function LoginPage() {
     setError('');
     setLoading(true);
     try {
-      await login(email, password);
-      navigate('/dashboard');
+      const decoded = await login(email, password);
+      navigate(decoded?.es_admin ? '/dashboard' : '/portal');
     } catch {
       setError('Correo o contraseña incorrectos.');
     } finally {

@@ -1,12 +1,26 @@
+import asyncio
+import logging
 import uuid
 import bcrypt
 from contextlib import asynccontextmanager
+from datetime import date, timedelta
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from database import Base, engine, SessionLocal
+from models.paciente import Paciente  # noqa: F401
 from models.usuario import Usuario
+from models.cita import Cita          # noqa: F401 — needed so create_all picks up the table
+from models.pago import Pago          # noqa: F401
 from routes import auth as auth_router
 from routes import pacientes
+from routes import citas
+from routes import pagos
+from routes import portal
+from routes.citas import procesar_citas_vencidas
+
+logger = logging.getLogger(__name__)
+
+JOB_INTERVALO_SEG = 5 * 60  # run every 5 minutes
 
 
 def _seed_admin():
@@ -26,11 +40,75 @@ def _seed_admin():
         db.close()
 
 
+def _seed_paciente():
+    """Seed a test patient account for portal demo/testing."""
+    CEDULA = "00000001"
+    EMAIL  = "paciente@elysium.com"
+    db = SessionLocal()
+    try:
+        if not db.get(Paciente, CEDULA):
+            db.add(Paciente(
+                Paciente=CEDULA,
+                nombre="Carlos Pérez",
+                email=EMAIL,
+                telefono="3001234567",
+            ))
+
+        if not db.query(Usuario).filter(Usuario.email == EMAIL).first():
+            hashed = bcrypt.hashpw(b"paciente123", bcrypt.gensalt()).decode()
+            db.add(Usuario(
+                id=str(uuid.uuid4()),
+                email=EMAIL,
+                hashed_password=hashed,
+                nombre="Carlos Pérez",
+                es_admin=False,
+            ))
+
+        if not db.query(Pago).filter(Pago.paciente_id == CEDULA).first():
+            fecha_pago = date.today() - timedelta(days=5)
+            db.add(Pago(
+                id=str(uuid.uuid4()),
+                paciente_id=CEDULA,
+                tipo_paquete="Pilates",
+                total_sesiones=12,
+                sesiones_restantes=8,
+                fecha_pago=fecha_pago,
+                fecha_vencimiento=fecha_pago + timedelta(days=45),
+            ))
+
+        db.commit()
+    finally:
+        db.close()
+
+
+async def _job_citas_vencidas():
+    """Background loop: auto-penalize past appointments with no status update."""
+    while True:
+        await asyncio.sleep(JOB_INTERVALO_SEG)
+        try:
+            db = SessionLocal()
+            try:
+                n = procesar_citas_vencidas(db)
+                if n:
+                    logger.info("Job: %d cita(s) marcadas como penalización automáticamente.", n)
+            finally:
+                db.close()
+        except Exception as exc:
+            logger.error("Job citas vencidas: %s", exc)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
     _seed_admin()
+    _seed_paciente()
+    task = asyncio.create_task(_job_citas_vencidas())
     yield
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
 
 
 app = FastAPI(title="Elysium Agenda API", lifespan=lifespan)
@@ -45,6 +123,9 @@ app.add_middleware(
 
 app.include_router(auth_router.router, prefix="/auth", tags=["auth"])
 app.include_router(pacientes.router, prefix="/pacientes", tags=["pacientes"])
+app.include_router(citas.router, prefix="/citas", tags=["citas"])
+app.include_router(pagos.router, prefix="/pagos", tags=["pagos"])
+app.include_router(portal.router, prefix="/portal", tags=["portal"])
 
 
 @app.get("/health")

@@ -22,7 +22,9 @@ export function AuthProvider({ children }) {
     const data = await loginRequest(email, password);
     localStorage.setItem('elysium_token', data.access_token);
     setToken(data.access_token);
-    setUser(parseToken(data.access_token));
+    const decoded = parseToken(data.access_token);
+    setUser(decoded);
+    return decoded;
   };
 
   const logout = () => {
