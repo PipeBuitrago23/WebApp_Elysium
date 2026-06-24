@@ -7,6 +7,10 @@ DATABASE_URL = os.getenv(
     "postgresql://admin:password_seguro@db:5432/elysium_agenda",
 )
 
+# Railway provides "postgresql://" — SQLAlchemy 2.x requires the +psycopg2 dialect explicitly
+if DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg2://", 1)
+
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()

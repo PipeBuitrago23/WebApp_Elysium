@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import uuid
 import bcrypt
 from contextlib import asynccontextmanager
@@ -113,9 +114,12 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Elysium Agenda API", lifespan=lifespan)
 
+_origins_raw = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000")
+ALLOWED_ORIGINS = [o.strip() for o in _origins_raw.split(",")]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
