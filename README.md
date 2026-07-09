@@ -1,57 +1,167 @@
-# Contexto General del Proyecto: Agenda Elysium
+# Elysium Fisio-Pilates — Sistema de Agendamiento
 
-## Descripción del Negocio
-Sistema integral de agendamiento para Elysium Fisio-pilates (sede única). El sistema maneja dos tipos de usuarios:
-1. **Administrador/Staff:** Control total de la agenda, asistencias, cancelaciones y métricas.
-2. **Pacientes (Externos):** Autogestión de citas para Fisioterapia o Pilates, registro de datos básicos y anamnesis breve (antecedentes, cirugías).
-
-## Arquitectura y Stack Tecnológico
-* **Tipo de Aplicación:** Progressive Web App (PWA).
-* **Frontend:** React.js (o Vue.js) interactivo y responsivo.
-* **Backend:** Python con FastAPI.
-* **Base de Datos:** PostgreSQL. *Nota estricta de diseño: Usar la columna `Paciente` (no ID_Paciente ni variaciones) como llave o identificador principal en las tablas relevantes para mantener coherencia con otros sistemas.*
-* **Infraestructura:** Docker y Docker Compose para desarrollo local y futuro despliegue. 
-* **Integraciones Futuras:** Webhooks vía n8n para enviar recordatorios por la API de WhatsApp de Meta.
-
-## Reglas de Desarrollo para la IA
-1.  **Código Limpio y Modular:** Separa la lógica de negocio, las rutas y la base de datos.
-2.  **Seguridad Primero:** Las contraseñas y datos sensibles deben estar encriptados. Implementar autenticación JWT.
-3.  **Respuestas Directas:** Al generar código, omite explicaciones excesivas a menos que se solicite. Provee el código estructurado por archivos.
+Aplicación web para la gestión de citas, planes y pacientes de una clínica de fisioterapia y pilates. Incluye panel de administración completo y portal de autogestión para pacientes.
 
 ---
 
-## Estado del Desarrollo (2026-06-18)
+## Funcionalidades
 
-### Completado
+### Panel de Administración
+- Dashboard con métricas en tiempo real (citas hoy/semana/mes, pacientes activos/inactivos)
+- Agenda semanal con slots de 30 minutos, badges de capacidad y cambio de estado de citas
+- CRUD completo de pacientes (búsqueda, anamnesis, historial)
+- Registro de pagos/planes (Pilates o Fisioterapia, 45 días de vigencia, sesiones restantes)
+- Formulario de nueva cita con validación de capacidad por slot
 
-| Capa | Archivo | Descripción |
-|------|---------|-------------|
-| Infra | `docker-compose.yml` | Stack completo: db + backend + frontend con healthcheck |
-| Backend | `main.py` | App factory, CORS, lifespan (create_all + seed admin) |
-| Backend | `database.py` | Engine SQLAlchemy, SessionLocal, get_db() |
-| Backend | `auth/jwt.py` | create_access_token, verify_token, **get_current_user** (dep. JWT) |
-| Backend | `models/usuario.py` | Tabla usuarios con bcrypt |
-| Backend | `models/paciente.py` | Tabla pacientes (PK = columna `Paciente`, anamnesis incluida) |
-| Backend | `routes/auth.py` | POST /auth/login → JWT |
-| Backend | `routes/pacientes.py` | **CRUD completo** (GET list+search, GET by id, POST, PUT, DELETE) — todas protegidas con JWT |
-| Frontend | `api/auth.js` | loginRequest() con x-www-form-urlencoded |
-| Frontend | `context/AuthContext.js` | AuthProvider, useAuth(), token en localStorage (`elysium_token`) |
-| Frontend | `components/PrivateRoute.js` | Redirige a /login si no hay sesión |
-| Frontend | `layouts/DashboardLayout.js` | Sidebar + TopBar + `<Outlet />` |
-| Frontend | `components/Sidebar.js` | Sidebar oscuro slate-900, nav activo teal-600 |
-| Frontend | `components/TopBar.js` | Barra de título por ruta |
-| Frontend | `pages/LoginPage.js` | Formulario login, diseño teal/slate |
-| Frontend | `pages/DashboardHome.js` | 4 tarjetas de estadísticas + tabla vacía de citas |
+### Portal del Paciente
+- Acceso anónimo por número de cédula (flujo QR) o con email/contraseña
+- Auto-registro con nombre, cédula, teléfono y email
+- Vista del plan activo: tipo, sesiones restantes, barra de progreso, fecha de vencimiento
+- Reserva de citas (o Sesión de cortesía si no tiene plan)
+- **Cancelación y reprogramación** de citas con restricción de 2 horas de anticipación
+- Correo de confirmación automático al reservar
 
-### Siguiente paso inmediato
+### Automatizaciones
+- Job cada 5 min: penaliza citas pasadas sin resolver (`No asistió con penalización`)
+- Job cada hora: envía recordatorio por email 24h antes de cada cita
 
-**`frontend/src/api/pacientes.js`** — helpers Axios para los 5 endpoints CRUD de pacientes.
-**`frontend/src/pages/PacientesPage.js`** — tabla buscable + formulario de registro/edición con anamnesis.
+---
 
-### Pendiente (en orden)
+## Stack
 
-1. `frontend/src/api/pacientes.js` + `frontend/src/pages/PacientesPage.js`
-2. `backend/models/cita.py` — modelo Cita (fecha, hora, tipo, FK paciente, notas)
-3. `backend/routes/citas.py` — CRUD de citas protegido con JWT
-4. `frontend/src/pages/NuevaCitaPage.js` — formulario de reserva
-5. `frontend/src/pages/AgendaPage.js` — vista calendario semanal/diaria
+| Capa | Tecnología |
+|------|-----------|
+| Frontend | React 18 · Tailwind CSS 3 · React Router 6 · Axios · Lucide React |
+| Backend | Python 3.11 · FastAPI · SQLAlchemy 2.x · python-jose · bcrypt · slowapi |
+| Base de datos | PostgreSQL 15 |
+| Email | Gmail SMTP (smtplib, STARTTLS, port 587) |
+| Infraestructura local | Docker + Docker Compose |
+| Producción | Railway (backend + PostgreSQL plugin + frontend) |
+
+---
+
+## Ejecutar en local
+
+```bash
+# Primera vez o tras cambiar dependencias
+docker compose up -d --build
+docker compose exec frontend npm install
+
+# Arranque normal
+docker compose up -d
+
+# Detener (conserva la BD)
+docker compose down
+
+# Detener y borrar datos
+docker compose down -v
+```
+
+| Servicio | URL |
+|----------|-----|
+| Frontend | http://localhost:3000 |
+| Backend API | http://localhost:8000 |
+| Swagger UI | http://localhost:8000/docs |
+| PostgreSQL | localhost:5432 · DB: `elysium_agenda` |
+
+> **Windows / Docker en D:** Si los cambios no se reflejan en el frontend, ejecuta `docker compose restart frontend`.
+
+---
+
+## Variables de entorno
+
+### Backend
+| Variable | Descripción | Ejemplo |
+|----------|-------------|---------|
+| `DATABASE_URL` | Cadena de conexión PostgreSQL | `postgresql://user:pass@host:5432/db` |
+| `JWT_SECRET_KEY` | Clave secreta para firmar tokens JWT | cadena aleatoria de 32+ chars |
+| `ALLOWED_ORIGINS` | URLs de frontend permitidas (CORS), separadas por coma | `https://mi-app.up.railway.app` |
+| `GMAIL_USER` | Cuenta Gmail para envío de correos | `elysium@gmail.com` |
+| `GMAIL_APP_PASSWORD` | App Password de Google (no la contraseña de la cuenta) | `abcd efgh ijkl mnop` |
+| `RAILWAY_ENVIRONMENT` | Activa modo producción (deshabilita /docs) | `production` |
+
+### Frontend
+| Variable | Descripción | Ejemplo |
+|----------|-------------|---------|
+| `REACT_APP_API_URL` | URL pública del backend | `https://backend.up.railway.app` |
+
+> `REACT_APP_API_URL` se bake en el bundle en tiempo de build — debe configurarse como variable de build en Railway antes de redesplegar el frontend.
+
+---
+
+## Cuentas de prueba
+
+| Rol | Email | Contraseña | Redirige a |
+|-----|-------|------------|-----------|
+| Admin | `admin@elysium.com` | `admin123` | `/dashboard` |
+| Paciente | `paciente@elysium.com` | `paciente123` | `/portal` (Carlos Pérez · cédula `00000001` · Pilates 8/12) |
+
+Ambas cuentas se crean automáticamente en cada arranque si no existen.
+
+---
+
+## Arquitectura
+
+```
+WebApp_Elysium/
+├── backend/
+│   ├── main.py              # App factory · CORS · lifespan · migraciones · jobs asyncio
+│   ├── database.py          # Engine SQLAlchemy · SessionLocal · get_db()
+│   ├── limiter.py           # Instancia compartida de slowapi
+│   ├── auth/
+│   │   └── jwt.py           # create_access_token · get_current_user · require_admin
+│   ├── models/
+│   │   ├── paciente.py      # PK = columna 'Paciente' (string/cédula)
+│   │   ├── usuario.py       # Usuarios admin y pacientes con bcrypt
+│   │   ├── cita.py          # fecha · hora · tipo · estado · recordatorio_enviado
+│   │   └── pago.py          # Plan: tipo · sesiones · vigencia 45 días
+│   ├── routes/
+│   │   ├── auth.py          # POST /auth/login — rate-limited 5/min
+│   │   ├── pacientes.py     # CRUD /pacientes/ — solo admin
+│   │   ├── citas.py         # CRUD /citas/ — solo admin · job penalización
+│   │   ├── pagos.py         # /pagos/ — solo admin
+│   │   └── portal.py        # /portal/* — público · rate-limited 10/min
+│   └── services/
+│       └── email.py         # send_confirmacion · send_recordatorio (Gmail SMTP)
+└── frontend/
+    └── src/
+        ├── api/             # Clientes Axios por recurso
+        ├── context/
+        │   └── AuthContext.js   # JWT en sessionStorage
+        ├── components/      # Sidebar · TopBar · PrivateRoute
+        ├── layouts/         # DashboardLayout
+        └── pages/
+            ├── LoginPage.js
+            ├── DashboardHome.js
+            ├── PacientesPage.js
+            ├── NuevaCitaPage.js
+            ├── AgendaPage.js
+            └── PortalPage.js
+```
+
+### Endpoints del portal (público)
+
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| GET | `/portal/paciente/{cedula}` | Carga plan y citas del paciente |
+| POST | `/portal/registro` | Auto-registro (nombre · cédula · teléfono · email) |
+| POST | `/portal/citas` | Reservar nueva cita |
+| POST | `/portal/citas/{id}/cancelar` | Cancelar cita (bloquea si faltan < 2h) |
+| POST | `/portal/citas/{id}/reprogramar` | Cambiar fecha/hora (bloquea si faltan < 2h) |
+
+---
+
+## Reglas de negocio clave
+
+- **Vigencia del plan:** 45 días desde `fecha_pago`, calculado en el servidor.
+- **Descuento de sesiones:** Solo al marcar como `completada` o `No asistió con penalización` — no al reservar.
+- **Ventana de cancelación:** Libre si faltan > 2h. Dentro de las 2h → penalización automática.
+- **Capacidad:** Pilates 6 pacientes/slot · Fisioterapia 2 pacientes/slot · validado en backend.
+- **Sesión de cortesía:** Máximo una por paciente (excluye canceladas).
+- **Migraciones:** Columnas nuevas en modelos existentes deben declararse en `_run_migrations()` en `main.py` con `ADD COLUMN IF NOT EXISTS`.
+
+---
+
+## Pendiente
+
+- [ ] **Notificaciones WhatsApp** — n8n webhook → API de WhatsApp (Meta) · recordatorio 24h antes de la cita

@@ -12,7 +12,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   - Track hourly capacity (view remaining open spaces/slots available per hour).
   - Register patient payments manually (package type, total sessions, payment date, and track overall attendance).
 - **Patients (External Users):**
-  - Self-register with name, cedula, and phone (public form — no login needed to register).
+  - Self-register with name, cedula, phone, and email (public form — no login needed to register).
   - Self-service booking for Fisioterapia or Pilates based on live slot availability.
   - View current active plan metrics: package type, total sessions, and remaining sessions (`sesiones_restantes`).
   - View plan expiration date (dynamically calculated).
@@ -64,7 +64,8 @@ Both accounts are auto-seeded by `_seed_admin()` and `_seed_paciente()` in `main
 | Frontend | React 18, Tailwind CSS 3, React Router 6, Axios, Lucide-React |
 | Backend | Python 3.11 / FastAPI, SQLAlchemy, python-jose (JWT), bcrypt |
 | Database | PostgreSQL 15 |
-| Infrastructure | Docker + Docker Compose |
+| Infrastructure | Docker + Docker Compose (local) · Railway (production) |
+| Rate limiting | slowapi (5/min login · 10/min portal public endpoints) |
 | Future | n8n webhooks → WhatsApp API (Meta) for reminders |
 
 ## Running the Project
@@ -90,7 +91,7 @@ docker compose down -v
 
 Service URLs when running:
 - Frontend: http://localhost:3000
-- Backend API + Swagger: http://localhost:8000 and http://localhost:8000/docs
+- Backend API + Swagger: http://localhost:8000 and http://localhost:8000/docs (disabled in production)
 - PostgreSQL: localhost:5432, database `elysium_agenda`
 
 ## Architecture
@@ -104,22 +105,26 @@ Three Docker containers (`docker-compose.yml`):
 ### Backend layout (`./backend/`)
 
 ```
-main.py              # App factory, CORS, lifespan (create_all + _seed_admin + _seed_paciente)
+main.py              # App factory, CORS, lifespan (create_all + _run_migrations + seeds + background jobs)
 database.py          # SQLAlchemy engine, SessionLocal, Base, get_db()
+limiter.py           # slowapi Limiter instance shared across routers
 auth/
-  jwt.py             # create_access_token / verify_token + get_current_user dependency
+  jwt.py             # create_access_token / verify_token / get_current_user / require_admin
 models/
   paciente.py        # Paciente table — PK column must be named 'Paciente' (string)
   usuario.py         # Staff/admin users with bcrypt hashed passwords
-  cita.py            # Cita table — id (UUID), paciente_id (FK), fecha, hora, tipo, estado, notas
+  cita.py            # Cita table — id (UUID), paciente_id (FK), fecha, hora, tipo, estado, notas, recordatorio_enviado
   pago.py            # Package purchase: tipo_paquete, total_sesiones, sesiones_restantes, fecha_pago, fecha_vencimiento
 routes/
-  auth.py            # POST /auth/login → JWT with sub, nombre, es_admin, paciente_id
-  pacientes.py       # Full CRUD /pacientes/ — JWT protected
-  citas.py           # Full CRUD /citas/ + background job procesar_citas_vencidas()
-  pagos.py           # POST /pagos/ + GET /pagos/?paciente_id= — JWT protected
-  portal.py          # Public (no JWT): GET /portal/paciente/{cedula}, POST /portal/citas,
-                     #   POST /portal/registro (self-register: nombre+cedula+telefono)
+  auth.py            # POST /auth/login → JWT · rate-limited 5/min
+  pacientes.py       # Full CRUD /pacientes/ — require_admin
+  citas.py           # Full CRUD /citas/ + background job procesar_citas_vencidas() — require_admin
+  pagos.py           # POST /pagos/ + GET /pagos/?paciente_id= — require_admin
+  portal.py          # Public (no JWT): GET /portal/paciente/{cedula}
+                     #   POST /portal/registro (nombre+cedula+telefono+email)
+                     #   POST /portal/citas (new booking)
+                     #   POST /portal/citas/{id}/cancelar (2h window enforced)
+                     #   POST /portal/citas/{id}/reprogramar (2h window enforced)
 ```
 
 > **bcrypt note:** `passlib[bcrypt]` is installed but NOT used — passlib 1.7.4 is incompatible with bcrypt 4.x (raises ValueError on startup). All password hashing uses `import bcrypt` directly.
@@ -135,9 +140,10 @@ api/
   pacientes.js              # getPacientes, getPaciente, createPaciente, updatePaciente, deletePaciente
   citas.js                  # getCitas, createCita, patchCitaEstado, updateCita, deleteCita
   pagos.js                  # getPagos, createPago
-  portal.js                 # getPortalPaciente, portalRegistro, portalCrearCita (no auth headers)
+  portal.js                 # getPortalPaciente, portalRegistro, portalCrearCita,
+                            #   portalCancelarCita, portalReprogramarCita (no auth headers)
 context/
-  AuthContext.js            # AuthProvider, useAuth() — JWT in localStorage (key: elysium_token)
+  AuthContext.js            # AuthProvider, useAuth() — JWT in sessionStorage (key: elysium_token)
                             # login() returns decoded payload so LoginPage can redirect by role
 layouts/
   DashboardLayout.js        # Sidebar + TopBar + <Outlet />
@@ -152,7 +158,8 @@ pages/
   NuevaCitaPage.js          # Admin appointment booking form
   AgendaPage.js             # Weekly view Lun–Sáb, 30-min slots, capacity badges, estado modal
   PortalPage.js             # Patient self-service: cedula entry OR auto-load (if logged in),
-                            #   plan card + progress bar, upcoming citas, booking form, self-register form
+                            #   plan card + progress bar, upcoming citas with cancel/reschedule buttons,
+                            #   booking form, self-register form (with email field)
 ```
 
 ### Routing structure
@@ -210,7 +217,7 @@ Terminal states (`completada`, `cancelada`, `"No asistió con penalización"`) a
 ### Patient registration flow
 
 New patients self-register via `/portal` → "Crea tu perfil aquí":
-1. `POST /portal/registro` — creates `pacientes` record with nombre, cedula, telefono (409 if cedula exists)
+1. `POST /portal/registro` — creates `pacientes` record with nombre, cedula, telefono, email (409 if cedula OR email already exists)
 2. Portal shows their empty dashboard: no plan, no citas, welcome message
 3. Admin completes full profile (fecha_nacimiento, antecedentes, cirugias) from PacientesPage when they attend their first session
 4. Admin registers payment → plan activates → patient can book sessions
@@ -223,32 +230,40 @@ New patients self-register via `/portal` → "Crea tu perfil aquí":
 - [x] Admin and test patient auto-seeded on startup
 - [x] Dashboard layout: dark sidebar, nav with icons, topbar, user info + logout
 - [x] Dashboard home: real stats — citas hoy/semana/mes split by Pilates/Fisio, pacientes activos/inactivos, próxima cita + today's table
-- [x] `backend/models/paciente.py` + full CRUD `routes/pacientes.py` (JWT protected)
+- [x] `backend/models/paciente.py` + full CRUD `routes/pacientes.py` (require_admin)
 - [x] `frontend/src/pages/PacientesPage.js` — searchable table + create/edit modal + delete confirm
-- [x] `backend/models/cita.py` + `routes/citas.py` — full CRUD + all validations + background auto-penalty job
+- [x] `backend/models/cita.py` + `routes/citas.py` — full CRUD + all validations + background auto-penalty job + PostgreSQL advisory lock
 - [x] `backend/models/pago.py` + `routes/pagos.py` — plan management
 - [x] `frontend/src/pages/NuevaCitaPage.js` — admin appointment booking form
 - [x] `frontend/src/pages/AgendaPage.js` — weekly view + estado modal + capacity badges
-- [x] `backend/routes/portal.py` — public routes: lookup, registro, cita booking
-- [x] `frontend/src/pages/PortalPage.js` — patient portal: anonymous + authenticated + self-register
+- [x] `backend/routes/portal.py` — public routes: lookup, registro (with email), booking, cancelar, reprogramar
+- [x] `frontend/src/pages/PortalPage.js` — patient portal: anonymous + authenticated + self-register + cancel/reschedule modals
+- [x] Email confirmación automática vía Gmail SMTP (booking + 24h reminder job)
+- [x] Monochromatic zinc/gray brand identity across all pages and email templates
+- [x] Deployed to Railway (backend + PostgreSQL plugin + frontend)
+- [x] Security hardening: require_admin, sessionStorage JWT, rate limiting, /docs disabled in prod, advisory lock, input validation
 
 **Next to build:**
-- [ ] **Notificaciones** — n8n webhook → WhatsApp recordatorio 24h antes de la cita
+- [ ] **Notificaciones WhatsApp** — n8n webhook → WhatsApp API (Meta) recordatorio 24h antes de la cita
 
 ## Critical Design Rules
 
 1. **Database identifier:** Always use the column named `Paciente` (never `ID_Paciente` or any variant) as the primary key/identifier in patient-related tables.
 
-2. **Auth:** JWT via `python-jose`. Use `bcrypt` directly (not `passlib.CryptContext`). Token stored in `localStorage` under key `elysium_token`. JWT payload always includes `es_admin` (bool) and `paciente_id` (str | null).
+2. **Auth:** JWT via `python-jose`. Use `bcrypt` directly (not `passlib.CryptContext`). Token stored in `sessionStorage` under key `elysium_token`. JWT payload always includes `es_admin` (bool) and `paciente_id` (str | null). Admin-only routes use `require_admin` dependency (not bare `get_current_user`).
 
 3. **Plan expiration:** Always computed server-side as `fecha_pago + timedelta(days=45)`. Never accept it from the client.
 
-4. **Session deduction:** `sesiones_restantes` is decremented by the backend only — never by the frontend. Triggered on estado = `"completada"` or `"No asistió con penalización"`.
+4. **Session deduction:** `sesiones_restantes` is decremented by the backend only — never by the frontend. Triggered on estado = `"completada"` or `"No asistió con penalización"`. Booking does NOT deduct (only checks availability).
 
 5. **Capacity constants (never hardcode inline):** Define in one place — e.g. `CAPACIDAD = {"Pilates": 6, "Fisioterapia": 2}`. Both `routes/citas.py` and `routes/portal.py` define their own copy (same values).
 
 6. **Code style:** Modules small and focused: routes only route, models only define schema, business logic in routes. No excessive comments.
 
-7. **Color palette:** teal-600/700 (primary actions, active nav, brand), slate-900 (sidebar), slate-50 (page background), white (cards).
+7. **Color palette:** zinc-800/900/950 (primary actions, sidebar background, brand dark), zinc-700 (active nav), slate-50 (page background), white (cards). Semantic colors kept: red (errors), green (success), amber (warnings).
 
 8. **Timezone gotcha:** Never use `new Date().toISOString().split('T')[0]` — returns UTC date. Always use local date methods: `getFullYear() / getMonth() / getDate()`. Applied in `DashboardHome.js`, `AgendaPage.js`, and `PortalPage.js`.
+
+9. **Schema migrations:** `create_all` only creates missing tables — it never alters existing ones. Any new column added to a model after initial deploy must also be added to `_run_migrations()` in `main.py` using `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`.
+
+10. **Portal 2h window:** Cancel and reschedule from the patient portal are blocked server-side when `datetime.now() >= cita_datetime - 2h`. The frontend mirrors this with `canModify(cita)` to disable buttons early, but the backend is the source of truth.
