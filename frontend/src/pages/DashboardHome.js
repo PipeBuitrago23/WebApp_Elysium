@@ -11,16 +11,16 @@ const MONTHS_ES = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','
 
 const ESTADO_STYLE = {
   programada:                    'bg-blue-100 text-blue-700',
-  confirmada:                    'bg-teal-100 text-teal-700',
+  confirmada:                    'bg-zinc-100 text-zinc-700',
   completada:                    'bg-green-100 text-green-700',
   cancelada:                     'bg-slate-100 text-slate-500',
   'No asistió con penalización': 'bg-red-100 text-red-700',
 };
 
 const TIPO_STYLE = {
-  Fisioterapia:         'bg-indigo-100 text-indigo-700',
-  Pilates:              'bg-teal-100 text-teal-700',
-  'Sesión de cortesía': 'bg-amber-100 text-amber-700',
+  Fisioterapia:         'bg-zinc-200 text-zinc-600',
+  Pilates:              'bg-zinc-100 text-zinc-700',
+  'Sesión de cortesía': 'bg-stone-100 text-stone-600',
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -93,16 +93,16 @@ function BreakdownCard({ label, total, breakdown, sub, Icon, iconColor, iconBg, 
 
       <div className={`flex flex-wrap gap-4 pt-3 border-t border-slate-100 ${loading ? 'invisible' : ''}`}>
         <span className="flex items-center gap-1.5 text-xs text-slate-600">
-          <span className="w-2 h-2 rounded-full bg-teal-500 shrink-0" />
+          <span className="w-2 h-2 rounded-full bg-zinc-700 shrink-0" />
           Pilates <strong className="ml-0.5">{breakdown.Pilates}</strong>
         </span>
         <span className="flex items-center gap-1.5 text-xs text-slate-600">
-          <span className="w-2 h-2 rounded-full bg-indigo-500 shrink-0" />
+          <span className="w-2 h-2 rounded-full bg-zinc-500 shrink-0" />
           Fisio <strong className="ml-0.5">{breakdown.Fisioterapia}</strong>
         </span>
         {breakdown['Sesión de cortesía'] > 0 && (
           <span className="flex items-center gap-1.5 text-xs text-slate-600">
-            <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" />
+            <span className="w-2 h-2 rounded-full bg-zinc-300 shrink-0" />
             Cortesía <strong className="ml-0.5">{breakdown['Sesión de cortesía']}</strong>
           </span>
         )}
@@ -243,8 +243,8 @@ export default function DashboardHome() {
           breakdown={breakdownHoy}
           sub={fmtHoy()}
           Icon={Calendar}
-          iconColor="text-teal-600"
-          iconBg="bg-teal-50"
+          iconColor="text-zinc-600"
+          iconBg="bg-zinc-100"
           loading={loading}
         />
         <BreakdownCard
@@ -253,8 +253,8 @@ export default function DashboardHome() {
           breakdown={breakdownSemana}
           sub="Lun – Sáb"
           Icon={CalendarDays}
-          iconColor="text-indigo-600"
-          iconBg="bg-indigo-50"
+          iconColor="text-zinc-500"
+          iconBg="bg-zinc-100"
           loading={loading}
         />
         <BreakdownCard
@@ -263,8 +263,8 @@ export default function DashboardHome() {
           breakdown={breakdownMes}
           sub={fmtMes()}
           Icon={BarChart2}
-          iconColor="text-violet-600"
-          iconBg="bg-violet-50"
+          iconColor="text-zinc-400"
+          iconBg="bg-zinc-100"
           loading={loading}
         />
       </div>
@@ -276,8 +276,8 @@ export default function DashboardHome() {
           value={pacientesActivos}
           sub={`de ${totalPacientes} registrados`}
           Icon={Users}
-          iconColor="text-amber-600"
-          iconBg="bg-amber-50"
+          iconColor="text-zinc-600"
+          iconBg="bg-zinc-100"
           loading={loading}
         />
         <StatCard
@@ -285,8 +285,8 @@ export default function DashboardHome() {
           value={pacientesInactivos}
           sub="+10 días sin cita"
           Icon={UserX}
-          iconColor={!loading && pacientesInactivos > 0 ? 'text-orange-600' : 'text-slate-400'}
-          iconBg={!loading && pacientesInactivos > 0 ? 'bg-orange-50' : 'bg-slate-50'}
+          iconColor={!loading && pacientesInactivos > 0 ? 'text-orange-600' : 'text-zinc-400'}
+          iconBg={!loading && pacientesInactivos > 0 ? 'bg-orange-50' : 'bg-zinc-100'}
           loading={loading}
           warn={!loading && pacientesInactivos > 0}
         />
@@ -299,8 +299,8 @@ export default function DashboardHome() {
               : 'Sin más citas hoy'
           }
           Icon={Clock}
-          iconColor="text-rose-600"
-          iconBg="bg-rose-50"
+          iconColor="text-zinc-500"
+          iconBg="bg-zinc-100"
           loading={loading}
         />
       </div>
@@ -324,35 +324,53 @@ export default function DashboardHome() {
             Sin sesiones de cortesía agendadas esta semana.
           </div>
         ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-100 text-xs text-slate-400 uppercase tracking-wide">
-                <th className="px-6 py-3 text-left font-medium">Fecha</th>
-                <th className="px-6 py-3 text-left font-medium">Hora</th>
-                <th className="px-6 py-3 text-left font-medium">Paciente</th>
-                <th className="px-6 py-3 text-left font-medium">Estado</th>
-              </tr>
-            </thead>
-            <tbody>
-              {cortesiasSemana.map((c) => (
-                <tr
-                  key={c.id}
-                  className="border-b border-slate-50 last:border-0 hover:bg-amber-50/40 transition-colors"
-                >
-                  <td className="px-6 py-3.5 text-slate-700 capitalize">{fmtFecha(c.fecha)}</td>
-                  <td className="px-6 py-3.5 font-mono font-semibold text-slate-700">{c.hora.slice(0, 5)}</td>
-                  <td className="px-6 py-3.5 text-slate-700">
-                    {pacientesMap[c.paciente_id] || c.paciente_id}
-                  </td>
-                  <td className="px-6 py-3.5">
-                    <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${ESTADO_STYLE[c.estado] || 'bg-slate-100 text-slate-600'}`}>
-                      {c.estado}
-                    </span>
-                  </td>
+          <>
+            {/* Desktop */}
+            <table className="hidden md:table w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-100 text-xs text-slate-400 uppercase tracking-wide">
+                  <th className="px-6 py-3 text-left font-medium">Fecha</th>
+                  <th className="px-6 py-3 text-left font-medium">Hora</th>
+                  <th className="px-6 py-3 text-left font-medium">Paciente</th>
+                  <th className="px-6 py-3 text-left font-medium">Estado</th>
                 </tr>
+              </thead>
+              <tbody>
+                {cortesiasSemana.map((c) => (
+                  <tr key={c.id} className="border-b border-slate-50 last:border-0 hover:bg-amber-50/40 transition-colors">
+                    <td className="px-6 py-3.5 text-slate-700 capitalize">{fmtFecha(c.fecha)}</td>
+                    <td className="px-6 py-3.5 font-mono font-semibold text-slate-700">{c.hora.slice(0, 5)}</td>
+                    <td className="px-6 py-3.5 text-slate-700">{pacientesMap[c.paciente_id] || c.paciente_id}</td>
+                    <td className="px-6 py-3.5">
+                      <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${ESTADO_STYLE[c.estado] || 'bg-slate-100 text-slate-600'}`}>
+                        {c.estado}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {/* Mobile cards */}
+            <div className="md:hidden divide-y divide-slate-50">
+              {cortesiasSemana.map((c) => (
+                <div key={c.id} className="px-4 py-3.5 flex items-center gap-3">
+                  <div className="shrink-0 text-center w-12">
+                    <p className="font-bold font-mono text-slate-700 text-sm">{c.hora.slice(0, 5)}</p>
+                    <p className="text-[10px] text-slate-400 mt-0.5 capitalize leading-tight">
+                      {fmtFecha(c.fecha).split(' ').slice(0, 2).join(' ')}
+                    </p>
+                  </div>
+                  <div className="w-px h-8 bg-slate-100 shrink-0" />
+                  <p className="flex-1 text-sm font-medium text-slate-700 truncate">
+                    {pacientesMap[c.paciente_id] || c.paciente_id}
+                  </p>
+                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full shrink-0 ${ESTADO_STYLE[c.estado] || 'bg-slate-100 text-slate-600'}`}>
+                    {c.estado}
+                  </span>
+                </div>
               ))}
-            </tbody>
-          </table>
+            </div>
+          </>
         )}
       </div>
 
@@ -372,49 +390,59 @@ export default function DashboardHome() {
             No hay citas programadas para hoy.
           </div>
         ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-100 text-xs text-slate-400 uppercase tracking-wide">
-                <th className="px-6 py-3 text-left font-medium">Hora</th>
-                <th className="px-6 py-3 text-left font-medium">Paciente</th>
-                <th className="px-6 py-3 text-left font-medium">Tipo</th>
-                <th className="px-6 py-3 text-left font-medium">Estado</th>
-              </tr>
-            </thead>
-            <tbody>
+          <>
+            {/* Desktop */}
+            <table className="hidden md:table w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-100 text-xs text-slate-400 uppercase tracking-wide">
+                  <th className="px-6 py-3 text-left font-medium">Hora</th>
+                  <th className="px-6 py-3 text-left font-medium">Paciente</th>
+                  <th className="px-6 py-3 text-left font-medium">Tipo</th>
+                  <th className="px-6 py-3 text-left font-medium">Estado</th>
+                </tr>
+              </thead>
+              <tbody>
+                {citasHoySinCanceladas.map((c) => (
+                  <tr key={c.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60 transition-colors">
+                    <td className="px-6 py-3.5 font-mono font-semibold text-slate-700">{c.hora.slice(0, 5)}</td>
+                    <td className="px-6 py-3.5 text-slate-700">{pacientesMap[c.paciente_id] || c.paciente_id}</td>
+                    <td className="px-6 py-3.5">
+                      <span className={`text-xs font-medium px-2 py-0.5 rounded ${TIPO_STYLE[c.tipo] || 'bg-slate-100 text-slate-600'}`}>
+                        {c.tipo}
+                      </span>
+                    </td>
+                    <td className="px-6 py-3.5">
+                      <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${ESTADO_STYLE[c.estado] || 'bg-slate-100 text-slate-600'}`}>
+                        {c.estado}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {/* Mobile cards */}
+            <div className="md:hidden divide-y divide-slate-50">
               {citasHoySinCanceladas.map((c) => (
-                <tr
-                  key={c.id}
-                  className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60 transition-colors"
-                >
-                  <td className="px-6 py-3.5 font-mono font-semibold text-slate-700">
-                    {c.hora.slice(0, 5)}
-                  </td>
-                  <td className="px-6 py-3.5 text-slate-700">
-                    {pacientesMap[c.paciente_id] || c.paciente_id}
-                  </td>
-                  <td className="px-6 py-3.5">
-                    <span
-                      className={`text-xs font-medium px-2 py-0.5 rounded ${
-                        TIPO_STYLE[c.tipo] || 'bg-slate-100 text-slate-600'
-                      }`}
-                    >
+                <div key={c.id} className="px-4 py-3.5 flex items-center gap-3">
+                  <div className="w-12 shrink-0 text-center">
+                    <p className="font-bold font-mono text-slate-700 text-sm">{c.hora.slice(0, 5)}</p>
+                  </div>
+                  <div className="w-px h-8 bg-slate-100 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-slate-700 truncate">
+                      {pacientesMap[c.paciente_id] || c.paciente_id}
+                    </p>
+                    <span className={`text-xs font-medium px-2 py-0.5 rounded mt-1 inline-block ${TIPO_STYLE[c.tipo] || 'bg-slate-100 text-slate-600'}`}>
                       {c.tipo}
                     </span>
-                  </td>
-                  <td className="px-6 py-3.5">
-                    <span
-                      className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
-                        ESTADO_STYLE[c.estado] || 'bg-slate-100 text-slate-600'
-                      }`}
-                    >
-                      {c.estado}
-                    </span>
-                  </td>
-                </tr>
+                  </div>
+                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full shrink-0 ${ESTADO_STYLE[c.estado] || 'bg-slate-100 text-slate-600'}`}>
+                    {c.estado}
+                  </span>
+                </div>
               ))}
-            </tbody>
-          </table>
+            </div>
+          </>
         )}
       </div>
     </div>

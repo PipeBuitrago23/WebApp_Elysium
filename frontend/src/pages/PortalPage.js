@@ -41,13 +41,13 @@ function diasHastaVencimiento(isoDate) {
 
 const ESTADO_BADGE = {
   programada: 'bg-blue-100 text-blue-700',
-  confirmada: 'bg-teal-100 text-teal-700',
+  confirmada: 'bg-zinc-100 text-zinc-700',
 };
 
 function PlanCard({ plan }) {
   const pct       = Math.round((plan.sesiones_restantes / plan.total_sesiones) * 100);
   const dias      = diasHastaVencimiento(plan.fecha_vencimiento);
-  const barColor  = pct > 50 ? 'bg-teal-500' : pct > 25 ? 'bg-amber-400' : 'bg-red-500';
+  const barColor  = pct > 50 ? 'bg-zinc-700' : pct > 25 ? 'bg-amber-400' : 'bg-red-500';
   const daysColor = dias > 14 ? 'text-emerald-600' : dias > 7 ? 'text-amber-600' : 'text-red-600';
   const daysLabel = dias > 1 ? `${dias} días` : dias === 1 ? '1 día' : dias === 0 ? 'hoy' : 'vencido';
 
@@ -58,7 +58,7 @@ function PlanCard({ plan }) {
           <p className="text-xs text-slate-400 uppercase tracking-wide font-medium mb-0.5">Plan activo</p>
           <p className="font-bold text-slate-800">{plan.tipo_paquete}</p>
         </div>
-        <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-teal-100 text-teal-700">
+        <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-zinc-100 text-zinc-700">
           activo
         </span>
       </div>
@@ -144,7 +144,7 @@ function BookingForm({ pacienteId, sinPlan, onSuccess, onCancel }) {
         {sinPlan ? (
           <div className="flex items-center gap-2 py-2">
             <span className="text-xs text-slate-500 font-medium uppercase tracking-wide">Tipo:</span>
-            <span className="bg-teal-100 text-teal-700 text-sm font-semibold px-3 py-1 rounded-full">
+            <span className="bg-zinc-100 text-zinc-700 text-sm font-semibold px-3 py-1 rounded-full">
               Sesión de cortesía
             </span>
           </div>
@@ -159,12 +159,10 @@ function BookingForm({ pacienteId, sinPlan, onSuccess, onCancel }) {
                   key={t}
                   type="button"
                   onClick={() => setForm((f) => ({ ...f, tipo: t }))}
-                  className={`flex-1 py-2.5 px-3 rounded-xl text-sm font-medium border transition-colors ${
+                  className={`flex-1 py-2.5 px-3 rounded-xl text-sm font-medium border transition-all ${
                     form.tipo === t
-                      ? t === 'Pilates'
-                        ? 'bg-teal-600 text-white border-teal-600'
-                        : 'bg-indigo-600 text-white border-indigo-600'
-                      : 'border-slate-200 text-slate-600 hover:border-slate-300 bg-white'
+                      ? 'bg-zinc-800 text-white border-zinc-800'
+                      : 'border-slate-200 text-slate-600 hover:border-zinc-400 bg-white'
                   }`}
                 >
                   {t}
@@ -183,7 +181,7 @@ function BookingForm({ pacienteId, sinPlan, onSuccess, onCancel }) {
             value={form.fecha}
             min={toISO(new Date())}
             onChange={(e) => setForm((f) => ({ ...f, fecha: e.target.value }))}
-            className="w-full border border-slate-200 rounded-xl px-4 py-3 text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+            className="w-full border border-slate-200 rounded-xl px-4 py-3 text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-500 focus:border-transparent"
           />
         </div>
 
@@ -194,7 +192,7 @@ function BookingForm({ pacienteId, sinPlan, onSuccess, onCancel }) {
           <select
             value={form.hora}
             onChange={(e) => setForm((f) => ({ ...f, hora: e.target.value }))}
-            className="w-full border border-slate-200 rounded-xl px-4 py-3 text-slate-800 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+            className="w-full border border-slate-200 rounded-xl px-4 py-3 text-slate-800 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-zinc-500 focus:border-transparent"
           >
             <option value="">Selecciona la hora</option>
             {VALID_SLOTS.map((s) => (
@@ -220,7 +218,7 @@ function BookingForm({ pacienteId, sinPlan, onSuccess, onCancel }) {
           <button
             type="submit"
             disabled={loading}
-            className="flex-1 py-3 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-sm font-semibold transition-colors disabled:opacity-50"
+            className="flex-1 py-3 rounded-xl bg-zinc-800 hover:bg-zinc-900 text-white text-sm font-semibold transition-all disabled:opacity-50"
           >
             {loading ? 'Reservando…' : 'Confirmar reserva'}
           </button>
@@ -328,10 +326,10 @@ export default function PortalPage() {
   return (
     <div className="min-h-screen bg-slate-50">
       {/* Branding header */}
-      <div className="bg-slate-900 py-5 text-center">
-        <h1 className="text-xl font-bold text-teal-400 tracking-tight">Elysium</h1>
-        <p className="text-[11px] text-slate-500 uppercase tracking-widest mt-0.5">
-          Fisio · Pilates
+      <div className="bg-zinc-950 py-5 text-center">
+        <h1 className="text-lg font-light tracking-widest uppercase text-white">Elysium</h1>
+        <p className="text-[10px] text-zinc-400 uppercase tracking-widest mt-1">
+          Fisioterapia & Pilates
         </p>
       </div>
 
@@ -356,12 +354,12 @@ export default function PortalPage() {
                 value={cedula}
                 onChange={(e) => setCedula(e.target.value)}
                 placeholder="Número de cédula"
-                className="w-full border border-slate-200 rounded-xl px-4 py-3.5 text-slate-800 text-center text-xl tracking-widest focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+                className="w-full border border-slate-200 rounded-xl px-4 py-3.5 text-slate-800 text-center text-xl tracking-widest focus:outline-none focus:ring-2 focus:ring-zinc-500 focus:border-transparent"
               />
               <button
                 type="submit"
                 disabled={loading || !cedula.trim()}
-                className="w-full bg-teal-600 hover:bg-teal-700 text-white font-semibold py-3.5 rounded-xl transition-colors disabled:opacity-50 text-base"
+                className="w-full bg-zinc-800 hover:bg-zinc-900 text-white font-semibold py-3.5 rounded-xl transition-all disabled:opacity-50 text-base"
               >
                 {loading ? 'Buscando…' : 'Ingresar'}
               </button>
@@ -373,7 +371,7 @@ export default function PortalPage() {
               <p className="text-slate-400 text-xs mb-2">¿Primera vez en Elysium?</p>
               <button
                 onClick={() => { setShowRegister(true); setError(''); }}
-                className="text-teal-600 hover:text-teal-700 text-sm font-medium underline underline-offset-2"
+                className="text-zinc-600 hover:text-zinc-900 text-sm font-medium underline underline-offset-2"
               >
                 Crea tu perfil aquí
               </button>
@@ -398,7 +396,7 @@ export default function PortalPage() {
                   value={regForm.nombre}
                   onChange={(e) => setRegForm((f) => ({ ...f, nombre: e.target.value }))}
                   placeholder="Ej. María García"
-                  className="w-full border border-slate-200 rounded-xl px-4 py-3 text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+                  className="w-full border border-slate-200 rounded-xl px-4 py-3 text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-500 focus:border-transparent"
                 />
               </div>
               <div>
@@ -411,7 +409,7 @@ export default function PortalPage() {
                   value={regForm.cedula}
                   onChange={(e) => setRegForm((f) => ({ ...f, cedula: e.target.value }))}
                   placeholder="Ej. 1234567890"
-                  className="w-full border border-slate-200 rounded-xl px-4 py-3 text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+                  className="w-full border border-slate-200 rounded-xl px-4 py-3 text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-500 focus:border-transparent"
                 />
               </div>
               <div>
@@ -424,7 +422,7 @@ export default function PortalPage() {
                   value={regForm.telefono}
                   onChange={(e) => setRegForm((f) => ({ ...f, telefono: e.target.value }))}
                   placeholder="Ej. 3001234567"
-                  className="w-full border border-slate-200 rounded-xl px-4 py-3 text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+                  className="w-full border border-slate-200 rounded-xl px-4 py-3 text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-500 focus:border-transparent"
                 />
               </div>
               {regError && (
@@ -435,7 +433,7 @@ export default function PortalPage() {
               <button
                 type="submit"
                 disabled={regLoading || !regForm.nombre.trim() || !regForm.cedula.trim() || !regForm.telefono.trim()}
-                className="w-full bg-teal-600 hover:bg-teal-700 text-white font-semibold py-3.5 rounded-xl transition-colors disabled:opacity-50 text-base"
+                className="w-full bg-zinc-800 hover:bg-zinc-900 text-white font-semibold py-3.5 rounded-xl transition-all disabled:opacity-50 text-base"
               >
                 {regLoading ? 'Creando perfil…' : 'Crear mi perfil'}
               </button>
@@ -517,7 +515,7 @@ export default function PortalPage() {
               {!bookingOpen ? (
                 <button
                   onClick={() => { setBookingOpen(true); setSuccessMsg(''); }}
-                  className="w-full py-3.5 bg-teal-600 hover:bg-teal-700 text-white font-semibold rounded-xl transition-colors"
+                  className="w-full py-3.5 bg-zinc-800 hover:bg-zinc-900 text-white font-semibold rounded-xl transition-all"
                 >
                   {paciente.plan_activo ? 'Reservar nueva cita' : 'Agendar Sesión de cortesía'}
                 </button>

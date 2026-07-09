@@ -29,8 +29,8 @@ export default function LoginPage() {
       <div className="w-full max-w-md">
 
         <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-teal-700 tracking-tight">Elysium</h1>
-          <p className="text-slate-400 mt-1 text-sm tracking-widest uppercase">Fisio · Pilates</p>
+          <h1 className="text-3xl font-light tracking-widest uppercase text-zinc-900">Elysium</h1>
+          <p className="text-zinc-400 mt-2 text-xs tracking-widest uppercase">Fisioterapia & Pilates</p>
         </div>
 
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8">
@@ -54,7 +54,7 @@ export default function LoginPage() {
                 required
                 autoComplete="email"
                 placeholder="admin@elysium.com"
-                className="w-full px-4 py-2.5 rounded-lg border border-slate-300 text-slate-800 text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition"
+                className="w-full px-4 py-2.5 rounded-lg border border-slate-300 text-slate-800 text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-zinc-500 focus:border-transparent transition"
               />
             </div>
 
@@ -69,14 +69,14 @@ export default function LoginPage() {
                 required
                 autoComplete="current-password"
                 placeholder="••••••••"
-                className="w-full px-4 py-2.5 rounded-lg border border-slate-300 text-slate-800 text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition"
+                className="w-full px-4 py-2.5 rounded-lg border border-slate-300 text-slate-800 text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-zinc-500 focus:border-transparent transition"
               />
             </div>
 
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-2.5 mt-2 rounded-lg bg-teal-600 hover:bg-teal-700 active:bg-teal-800 text-white font-medium text-sm transition disabled:opacity-60 disabled:cursor-not-allowed"
+              className="w-full py-2.5 mt-2 rounded-lg bg-zinc-800 hover:bg-zinc-900 active:bg-zinc-950 text-white font-medium text-sm transition-all disabled:opacity-60 disabled:cursor-not-allowed"
             >
               {loading ? 'Ingresando...' : 'Ingresar'}
             </button>

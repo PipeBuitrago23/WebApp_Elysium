@@ -77,9 +77,9 @@ def _base_template(title: str, content: str) -> str:
           <!-- Header -->
           <tr>
             <td style="background-color:#0f172a;border-radius:16px 16px 0 0;padding:32px;text-align:center;">
-              <p style="margin:0;font-size:28px;font-weight:800;color:#2dd4bf;letter-spacing:-0.5px;">Elysium</p>
-              <p style="margin:6px 0 0;font-size:11px;color:#64748b;letter-spacing:3px;text-transform:uppercase;">
-                Fisio · Pilates
+              <p style="margin:0;font-size:22px;font-weight:300;color:#ffffff;letter-spacing:6px;text-transform:uppercase;">Elysium</p>
+              <p style="margin:6px 0 0;font-size:10px;color:#a1a1aa;letter-spacing:3px;text-transform:uppercase;">
+                Fisioterapia &amp; Pilates
               </p>
             </td>
           </tr>
@@ -128,32 +128,32 @@ def _build_confirmacion_html(nombre: str, cita, plan) -> str:
       </p>
 
       <!-- Cita card -->
-      <div style="background:linear-gradient(135deg,#0d9488 0%,#0f766e 100%);border-radius:16px;padding:28px;margin-bottom:28px;">
-        <p style="color:#99f6e4;font-size:11px;text-transform:uppercase;letter-spacing:2px;font-weight:700;margin:0 0 20px;">
+      <div style="background:linear-gradient(135deg,#27272a 0%,#3f3f46 100%);border-radius:16px;padding:28px;margin-bottom:28px;">
+        <p style="color:#d4d4d8;font-size:11px;text-transform:uppercase;letter-spacing:2px;font-weight:700;margin:0 0 20px;">
           Detalles de la cita
         </p>
         <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
           <tr>
             <td style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.15);">
-              <span style="color:#99f6e4;font-size:11px;display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:1px;">Servicio</span>
+              <span style="color:#d4d4d8;font-size:11px;display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:1px;">Servicio</span>
               <span style="color:#ffffff;font-size:18px;font-weight:700;">{cita.tipo}</span>
             </td>
           </tr>
           <tr>
             <td style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.15);">
-              <span style="color:#99f6e4;font-size:11px;display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:1px;">Fecha</span>
+              <span style="color:#d4d4d8;font-size:11px;display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:1px;">Fecha</span>
               <span style="color:#ffffff;font-size:18px;font-weight:700;">{fecha_fmt}</span>
             </td>
           </tr>
           <tr>
             <td style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.15);">
-              <span style="color:#99f6e4;font-size:11px;display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:1px;">Hora</span>
+              <span style="color:#d4d4d8;font-size:11px;display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:1px;">Hora</span>
               <span style="color:#ffffff;font-size:18px;font-weight:700;">{hora_fmt}</span>
             </td>
           </tr>
           <tr>
             <td style="padding:10px 0;">
-              <span style="color:#99f6e4;font-size:11px;display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:1px;">Instructor</span>
+              <span style="color:#d4d4d8;font-size:11px;display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:1px;">Instructor</span>
               <span style="color:#ffffff;font-size:18px;font-weight:700;">Equipo Elysium</span>
             </td>
           </tr>
@@ -163,7 +163,7 @@ def _build_confirmacion_html(nombre: str, cita, plan) -> str:
       <!-- Calendar button -->
       <div style="text-align:center;margin-bottom:28px;">
         <a href="{cal_url}"
-           style="display:inline-block;background-color:#f8fafc;border:2px solid #e2e8f0;border-radius:12px;padding:13px 28px;font-size:14px;font-weight:600;color:#0d9488;text-decoration:none;">
+           style="display:inline-block;background-color:#f8fafc;border:2px solid #e2e8f0;border-radius:12px;padding:13px 28px;font-size:14px;font-weight:600;color:#3f3f46;text-decoration:none;">
           📅 Añadir a Google Calendar
         </a>
       </div>
@@ -171,7 +171,7 @@ def _build_confirmacion_html(nombre: str, cita, plan) -> str:
       {_plan_block(plan)}
 
       <!-- Logistics -->
-      <div style="background:#f8fafc;border-radius:12px;padding:20px;margin-bottom:24px;border-left:4px solid #2dd4bf;">
+      <div style="background:#f8fafc;border-radius:12px;padding:20px;margin-bottom:24px;border-left:4px solid #71717a;">
         <p style="color:#0f172a;font-size:14px;font-weight:700;margin:0 0 12px;">Antes de llegar, recuerda:</p>
         <table cellpadding="0" cellspacing="0" role="presentation">
           <tr>
@@ -209,7 +209,7 @@ def _build_confirmacion_html(nombre: str, cita, plan) -> str:
       <!-- Portal CTA -->
       <div style="text-align:center;">
         <a href="{PORTAL_URL}"
-           style="display:inline-block;background-color:#0d9488;border-radius:12px;padding:16px 40px;font-size:15px;font-weight:700;color:#ffffff;text-decoration:none;letter-spacing:0.3px;">
+           style="display:inline-block;background-color:#27272a;border-radius:12px;padding:16px 40px;font-size:15px;font-weight:700;color:#ffffff;text-decoration:none;letter-spacing:0.3px;">
           Ver mi portal
         </a>
       </div>"""
@@ -235,33 +235,33 @@ def _build_recordatorio_html(nombre: str, cita, plan) -> str:
         Te enviamos este recordatorio 24 horas antes para que te prepares.
       </p>
 
-      <!-- Cita card — blue for reminder -->
-      <div style="background:linear-gradient(135deg,#1e40af 0%,#1d4ed8 100%);border-radius:16px;padding:28px;margin-bottom:28px;">
-        <p style="color:#bfdbfe;font-size:11px;text-transform:uppercase;letter-spacing:2px;font-weight:700;margin:0 0 20px;">
+      <!-- Cita card — reminder -->
+      <div style="background:linear-gradient(135deg,#27272a 0%,#3f3f46 100%);border-radius:16px;padding:28px;margin-bottom:28px;">
+        <p style="color:#d4d4d8;font-size:11px;text-transform:uppercase;letter-spacing:2px;font-weight:700;margin:0 0 20px;">
           Tu cita de mañana
         </p>
         <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
           <tr>
             <td style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.15);">
-              <span style="color:#bfdbfe;font-size:11px;display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:1px;">Servicio</span>
+              <span style="color:#d4d4d8;font-size:11px;display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:1px;">Servicio</span>
               <span style="color:#ffffff;font-size:18px;font-weight:700;">{cita.tipo}</span>
             </td>
           </tr>
           <tr>
             <td style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.15);">
-              <span style="color:#bfdbfe;font-size:11px;display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:1px;">Fecha</span>
+              <span style="color:#d4d4d8;font-size:11px;display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:1px;">Fecha</span>
               <span style="color:#ffffff;font-size:18px;font-weight:700;">{fecha_fmt}</span>
             </td>
           </tr>
           <tr>
             <td style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.15);">
-              <span style="color:#bfdbfe;font-size:11px;display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:1px;">Hora</span>
+              <span style="color:#d4d4d8;font-size:11px;display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:1px;">Hora</span>
               <span style="color:#ffffff;font-size:18px;font-weight:700;">{hora_fmt}</span>
             </td>
           </tr>
           <tr>
             <td style="padding:10px 0;">
-              <span style="color:#bfdbfe;font-size:11px;display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:1px;">Instructor</span>
+              <span style="color:#d4d4d8;font-size:11px;display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:1px;">Instructor</span>
               <span style="color:#ffffff;font-size:18px;font-weight:700;">Equipo Elysium</span>
             </td>
           </tr>
@@ -271,7 +271,7 @@ def _build_recordatorio_html(nombre: str, cita, plan) -> str:
       <!-- Calendar button -->
       <div style="text-align:center;margin-bottom:28px;">
         <a href="{cal_url}"
-           style="display:inline-block;background-color:#f8fafc;border:2px solid #e2e8f0;border-radius:12px;padding:13px 28px;font-size:14px;font-weight:600;color:#1d4ed8;text-decoration:none;">
+           style="display:inline-block;background-color:#f8fafc;border:2px solid #e2e8f0;border-radius:12px;padding:13px 28px;font-size:14px;font-weight:600;color:#3f3f46;text-decoration:none;">
           📅 Añadir a Google Calendar
         </a>
       </div>
@@ -279,7 +279,7 @@ def _build_recordatorio_html(nombre: str, cita, plan) -> str:
       {_plan_block(plan)}
 
       <!-- Logistics reminder -->
-      <div style="background:#f8fafc;border-radius:12px;padding:20px;margin-bottom:24px;border-left:4px solid #2dd4bf;">
+      <div style="background:#f8fafc;border-radius:12px;padding:20px;margin-bottom:24px;border-left:4px solid #71717a;">
         <p style="color:#0f172a;font-size:14px;font-weight:700;margin:0 0 12px;">Para mañana no olvides:</p>
         <table cellpadding="0" cellspacing="0" role="presentation">
           <tr>
@@ -317,7 +317,7 @@ def _build_recordatorio_html(nombre: str, cita, plan) -> str:
       <!-- Portal CTA -->
       <div style="text-align:center;">
         <a href="{PORTAL_URL}"
-           style="display:inline-block;background-color:#0d9488;border-radius:12px;padding:16px 40px;font-size:15px;font-weight:700;color:#ffffff;text-decoration:none;letter-spacing:0.3px;">
+           style="display:inline-block;background-color:#27272a;border-radius:12px;padding:16px 40px;font-size:15px;font-weight:700;color:#ffffff;text-decoration:none;letter-spacing:0.3px;">
           Gestionar mi cita
         </a>
       </div>"""

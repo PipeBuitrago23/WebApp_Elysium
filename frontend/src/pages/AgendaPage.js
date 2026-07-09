@@ -14,15 +14,15 @@ for (let h = 7; h <= 18; h++) {
 const CAP = { Fisioterapia: 2, Pilates: 6, 'Sesión de cortesía': 6 };
 
 const TIPO_STYLE = {
-  Fisioterapia:         'bg-indigo-100 text-indigo-700',
-  Pilates:              'bg-teal-100 text-teal-700',
-  'Sesión de cortesía': 'bg-amber-100 text-amber-700',
+  Fisioterapia:         'bg-zinc-200 text-zinc-600',
+  Pilates:              'bg-zinc-100 text-zinc-700',
+  'Sesión de cortesía': 'bg-stone-100 text-stone-600',
 };
 
 const TIPO_CAP_COLOR = {
-  Fisioterapia:         'text-indigo-500',
-  Pilates:              'text-teal-500',
-  'Sesión de cortesía': 'text-amber-500',
+  Fisioterapia:         'text-zinc-500',
+  Pilates:              'text-zinc-600',
+  'Sesión de cortesía': 'text-stone-500',
 };
 
 const TIPO_SHORT = {
@@ -33,7 +33,7 @@ const TIPO_SHORT = {
 
 const ESTADO_STYLE = {
   programada:                    'bg-blue-100 text-blue-700',
-  confirmada:                    'bg-teal-100 text-teal-700',
+  confirmada:                    'bg-zinc-100 text-zinc-700',
   completada:                    'bg-green-100 text-green-700',
   cancelada:                     'bg-slate-100 text-slate-600',
   'No asistió con penalización': 'bg-red-100 text-red-700',
@@ -305,15 +305,15 @@ export default function AgendaPage() {
   return (
     <div>
       {/* Navigation */}
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+        <div className="flex items-center gap-1.5 sm:gap-2">
           <button
             onClick={() => setWeekStart((w) => addDays(w, -7))}
             className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600 transition-colors"
           >
             <ChevronLeft className="w-4 h-4" />
           </button>
-          <span className="text-sm font-semibold text-slate-700 min-w-[220px] text-center">
+          <span className="text-xs sm:text-sm font-semibold text-slate-700 text-center min-w-0 sm:min-w-[200px]">
             {weekLabel}
           </span>
           <button
@@ -325,7 +325,7 @@ export default function AgendaPage() {
         </div>
         <button
           onClick={() => setWeekStart(getMonday(new Date()))}
-          className="text-xs text-teal-600 hover:text-teal-700 font-medium border border-teal-200 px-3 py-1.5 rounded-lg hover:bg-teal-50 transition-colors"
+          className="text-xs text-zinc-600 hover:text-zinc-900 font-medium border border-zinc-200 px-3 py-1.5 rounded-lg hover:bg-zinc-50 transition-colors shrink-0"
         >
           Esta semana
         </button>
@@ -364,12 +364,12 @@ export default function AgendaPage() {
                 return (
                   <th
                     key={iso}
-                    className={`px-2 py-3 text-center border-l border-slate-100 ${isToday ? 'bg-teal-50' : 'bg-white'}`}
+                    className={`px-2 py-3 text-center border-l border-slate-100 ${isToday ? 'bg-zinc-50' : 'bg-white'}`}
                   >
-                    <div className={`text-[10px] uppercase tracking-wide font-medium ${isToday ? 'text-teal-500' : 'text-slate-400'}`}>
+                    <div className={`text-[10px] uppercase tracking-wide font-medium ${isToday ? 'text-zinc-500' : 'text-slate-400'}`}>
                       {DAYS_ES[d.getDay()]}
                     </div>
-                    <div className={`text-base font-bold leading-tight ${isToday ? 'text-teal-600' : 'text-slate-700'}`}>
+                    <div className={`text-base font-bold leading-tight ${isToday ? 'text-zinc-700' : 'text-slate-700'}`}>
                       {d.getDate()}
                     </div>
                   </th>
@@ -402,7 +402,7 @@ export default function AgendaPage() {
                       return (
                         <td
                           key={iso}
-                          className={`px-1.5 py-1 align-top border-l border-slate-100 ${isToday ? 'bg-teal-50/20' : ''}`}
+                          className={`px-1.5 py-1 align-top border-l border-slate-100 ${isToday ? 'bg-zinc-50/50' : ''}`}
                           style={{ minWidth: 110 }}
                         >
                           {sc.length > 0 && (

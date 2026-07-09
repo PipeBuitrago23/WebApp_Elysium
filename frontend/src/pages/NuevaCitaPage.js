@@ -84,7 +84,7 @@ export default function NuevaCitaPage() {
     return (
       <div className="max-w-lg mx-auto">
         <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center">
-          <CheckCircle className="w-12 h-12 text-teal-600 mx-auto mb-4" />
+          <CheckCircle className="w-12 h-12 text-zinc-700 mx-auto mb-4" />
           <h2 className="text-lg font-semibold text-slate-800 mb-1">Cita registrada</h2>
           <p className="text-sm text-slate-500 mb-0.5 font-medium">{success.paciente_id}</p>
           <p className="text-sm text-slate-400 mb-6">
@@ -92,7 +92,7 @@ export default function NuevaCitaPage() {
           </p>
           <button
             onClick={() => setSuccess(null)}
-            className="bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium px-5 py-2 rounded-lg transition-colors"
+            className="bg-zinc-800 hover:bg-zinc-900 text-white text-sm font-medium px-5 py-2 rounded-lg transition-all"
           >
             Registrar otra cita
           </button>
@@ -129,7 +129,7 @@ export default function NuevaCitaPage() {
                   setShowDropdown(true);
                 }}
                 onFocus={() => setShowDropdown(true)}
-                className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-zinc-500"
               />
             </div>
             {showDropdown && patientQuery.length > 0 && filtered.length > 0 && (
@@ -158,7 +158,7 @@ export default function NuevaCitaPage() {
               min={today()}
               onChange={handleChange}
               required
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-500"
             />
           </div>
 
@@ -173,8 +173,8 @@ export default function NuevaCitaPage() {
                   onClick={() => setForm((f) => ({ ...f, tipo: t }))}
                   className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
                     form.tipo === t
-                      ? 'bg-teal-600 text-white border-teal-600'
-                      : 'bg-white text-slate-600 border-slate-200 hover:border-teal-400'
+                      ? 'bg-zinc-800 text-white border-zinc-800'
+                      : 'bg-white text-slate-600 border-slate-200 hover:border-zinc-400'
                   }`}
                 >
                   {t}
@@ -191,7 +191,7 @@ export default function NuevaCitaPage() {
               value={form.hora}
               onChange={handleChange}
               required
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white"
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-500 bg-white"
             >
               <option value="">Selecciona un horario…</option>
               {VALID_SLOTS.map((s) => (
@@ -210,7 +210,7 @@ export default function NuevaCitaPage() {
               value={form.notas}
               onChange={handleChange}
               rows={3}
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 resize-none"
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-500 resize-none"
             />
           </div>
 
@@ -218,7 +218,7 @@ export default function NuevaCitaPage() {
             <button
               type="submit"
               disabled={saving || !form.paciente_id}
-              className="w-full bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-sm font-medium py-2.5 rounded-lg transition-colors"
+              className="w-full bg-zinc-800 hover:bg-zinc-900 disabled:opacity-50 text-white text-sm font-medium py-2.5 rounded-lg transition-all"
             >
               {saving ? 'Guardando…' : 'Registrar cita'}
             </button>
