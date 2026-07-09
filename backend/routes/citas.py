@@ -2,8 +2,9 @@ import uuid
 from datetime import date, datetime, time, timedelta
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, field_validator
+from sqlalchemy import text
 from sqlalchemy.orm import Session
-from auth.jwt import get_current_user
+from auth.jwt import require_admin
 from database import get_db
 from models.cita import Cita
 from models.paciente import Paciente
@@ -51,7 +52,12 @@ def procesar_citas_vencidas(db: Session) -> int:
 
     Called by the background job every few minutes. Returns number of citas processed.
     Unlike _descuenta_sesion, does not raise if there is no active plan — just skips deduction.
+    Uses a PostgreSQL advisory lock so multiple replicas don't double-penalize.
     """
+    acquired = db.execute(text("SELECT pg_try_advisory_xact_lock(20001)")).scalar()
+    if not acquired:
+        return 0
+
     hoy   = date.today()
     ahora = datetime.now().time()
 
@@ -93,7 +99,6 @@ class CitaCreate(BaseModel):
     fecha: date
     hora: time
     tipo: str
-    estado: str = "programada"
     notas: str | None = None
 
     @field_validator("hora")
@@ -117,7 +122,6 @@ class CitaUpdate(BaseModel):
     fecha: date | None = None
     hora: time | None = None
     tipo: str | None = None
-    estado: str | None = None
     notas: str | None = None
 
 
@@ -157,7 +161,7 @@ def list_citas(
     paciente_id: str | None = Query(None),
     estado: str | None = Query(None),
     db: Session = Depends(get_db),
-    _: dict = Depends(get_current_user),
+    _: dict = Depends(require_admin),
 ):
     q = db.query(Cita)
     if fecha:
@@ -177,7 +181,7 @@ def list_citas(
 def get_cita(
     cita_id: str,
     db: Session = Depends(get_db),
-    _: dict = Depends(get_current_user),
+    _: dict = Depends(require_admin),
 ):
     row = db.get(Cita, cita_id)
     if not row:
@@ -190,7 +194,7 @@ def create_cita(
     data: CitaCreate,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    _: dict = Depends(get_current_user),
+    _: dict = Depends(require_admin),
 ):
     # ① Active plan must cover the appointment date
     plan = (
@@ -221,7 +225,7 @@ def create_cita(
             detail=f"Slot lleno para {data.tipo} el {data.fecha} a las {data.hora.strftime('%H:%M')}",
         )
 
-    row = Cita(id=str(uuid.uuid4()), **data.model_dump())
+    row = Cita(id=str(uuid.uuid4()), estado="programada", **data.model_dump())
     db.add(row)
     db.commit()
     db.refresh(row)
@@ -238,7 +242,7 @@ def patch_estado(
     cita_id: str,
     data: EstadoUpdate,
     db: Session = Depends(get_db),
-    _: dict = Depends(get_current_user),
+    _: dict = Depends(require_admin),
 ):
     cita = db.get(Cita, cita_id)
     if not cita:
@@ -273,7 +277,7 @@ def update_cita(
     cita_id: str,
     data: CitaUpdate,
     db: Session = Depends(get_db),
-    _: dict = Depends(get_current_user),
+    _: dict = Depends(require_admin),
 ):
     row = db.get(Cita, cita_id)
     if not row:
@@ -289,7 +293,7 @@ def update_cita(
 def delete_cita(
     cita_id: str,
     db: Session = Depends(get_db),
-    _: dict = Depends(get_current_user),
+    _: dict = Depends(require_admin),
 ):
     row = db.get(Cita, cita_id)
     if not row:

@@ -2,7 +2,7 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
-from auth.jwt import get_current_user
+from auth.jwt import require_admin
 from database import get_db
 from models.paciente import Paciente
 
@@ -49,7 +49,7 @@ router = APIRouter()
 def list_pacientes(
     q: str | None = Query(None, description="Busca por nombre, email o teléfono"),
     db: Session = Depends(get_db),
-    _: dict = Depends(get_current_user),
+    _: dict = Depends(require_admin),
 ):
     query = db.query(Paciente)
     if q:
@@ -66,7 +66,7 @@ def list_pacientes(
 def get_paciente(
     paciente_id: str,
     db: Session = Depends(get_db),
-    _: dict = Depends(get_current_user),
+    _: dict = Depends(require_admin),
 ):
     row = db.get(Paciente, paciente_id)
     if not row:
@@ -78,7 +78,7 @@ def get_paciente(
 def create_paciente(
     data: PacienteCreate,
     db: Session = Depends(get_db),
-    _: dict = Depends(get_current_user),
+    _: dict = Depends(require_admin),
 ):
     if db.get(Paciente, data.Paciente):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Ya existe un paciente con ese ID")
@@ -94,7 +94,7 @@ def update_paciente(
     paciente_id: str,
     data: PacienteUpdate,
     db: Session = Depends(get_db),
-    _: dict = Depends(get_current_user),
+    _: dict = Depends(require_admin),
 ):
     row = db.get(Paciente, paciente_id)
     if not row:
@@ -110,7 +110,7 @@ def update_paciente(
 def delete_paciente(
     paciente_id: str,
     db: Session = Depends(get_db),
-    _: dict = Depends(get_current_user),
+    _: dict = Depends(require_admin),
 ):
     row = db.get(Paciente, paciente_id)
     if not row:

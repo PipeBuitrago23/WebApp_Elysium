@@ -12,15 +12,15 @@ function parseToken(token) {
 }
 
 export function AuthProvider({ children }) {
-  const [token, setToken] = useState(() => localStorage.getItem('elysium_token'));
+  const [token, setToken] = useState(() => sessionStorage.getItem('elysium_token'));
   const [user, setUser] = useState(() => {
-    const t = localStorage.getItem('elysium_token');
+    const t = sessionStorage.getItem('elysium_token');
     return t ? parseToken(t) : null;
   });
 
   const login = async (email, password) => {
     const data = await loginRequest(email, password);
-    localStorage.setItem('elysium_token', data.access_token);
+    sessionStorage.setItem('elysium_token', data.access_token);
     setToken(data.access_token);
     const decoded = parseToken(data.access_token);
     setUser(decoded);
@@ -28,7 +28,7 @@ export function AuthProvider({ children }) {
   };
 
   const logout = () => {
-    localStorage.removeItem('elysium_token');
+    sessionStorage.removeItem('elysium_token');
     setToken(null);
     setUser(null);
   };

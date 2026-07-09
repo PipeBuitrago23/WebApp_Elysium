@@ -16,3 +16,19 @@ export async function portalCrearCita(body) {
   const { data } = await axios.post(`${BASE}/portal/citas`, body);
   return data;
 }
+
+export async function portalCancelarCita(citaId, pacienteId) {
+  const { data } = await axios.post(`${BASE}/portal/citas/${citaId}/cancelar`, {
+    paciente_id: pacienteId,
+  });
+  return data;
+}
+
+export async function portalReprogramarCita(citaId, pacienteId, fecha, hora) {
+  const { data } = await axios.post(`${BASE}/portal/citas/${citaId}/reprogramar`, {
+    paciente_id: pacienteId,
+    fecha,
+    hora,
+  });
+  return data;
+}

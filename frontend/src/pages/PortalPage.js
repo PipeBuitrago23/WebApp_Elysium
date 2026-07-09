@@ -1,7 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { getPortalPaciente, portalCrearCita, portalRegistro } from '../api/portal';
+import {
+  getPortalPaciente,
+  portalCrearCita,
+  portalRegistro,
+  portalCancelarCita,
+  portalReprogramarCita,
+} from '../api/portal';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -35,6 +41,14 @@ function diasHastaVencimiento(isoDate) {
   const hoy = new Date();
   hoy.setHours(0, 0, 0, 0);
   return Math.ceil((target - hoy) / (1000 * 60 * 60 * 24));
+}
+
+// Returns true if the appointment is still modifiable (more than 2h away)
+function canModify(cita) {
+  const [y, m, d] = cita.fecha.split('-').map(Number);
+  const [hh, mm]  = cita.hora.split(':').map(Number);
+  const citaDt    = new Date(y, m - 1, d, hh, mm, 0);
+  return new Date() < new Date(citaDt.getTime() - 2 * 60 * 60 * 1000);
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
@@ -88,23 +102,48 @@ function PlanCard({ plan }) {
   );
 }
 
-function CitaCard({ cita }) {
+function CitaCard({ cita, onCancelClick, onRescheduleClick }) {
+  const modifiable = canModify(cita);
+
   return (
-    <div className="bg-white rounded-xl border border-slate-200 p-4 flex items-center gap-4">
-      <div className="text-center w-14 shrink-0">
-        <p className="text-lg font-bold text-slate-800 leading-none">{cita.hora.slice(0, 5)}</p>
-        <p className="text-[10px] text-slate-400 mt-0.5 uppercase">hora</p>
+    <div className="bg-white rounded-xl border border-slate-200 p-4">
+      <div className="flex items-center gap-4">
+        <div className="text-center w-14 shrink-0">
+          <p className="text-lg font-bold text-slate-800 leading-none">{cita.hora.slice(0, 5)}</p>
+          <p className="text-[10px] text-slate-400 mt-0.5 uppercase">hora</p>
+        </div>
+        <div className="w-px h-10 bg-slate-100 shrink-0" />
+        <div className="flex-1 min-w-0">
+          <p className="font-medium text-slate-700 text-sm">{cita.tipo}</p>
+          <p className="text-xs text-slate-400 mt-0.5">{fmtFecha(cita.fecha)}</p>
+        </div>
+        <span className={`text-xs font-medium px-2 py-0.5 rounded-full shrink-0 ${
+          ESTADO_BADGE[cita.estado] || 'bg-slate-100 text-slate-500'
+        }`}>
+          {cita.estado}
+        </span>
       </div>
-      <div className="w-px h-10 bg-slate-100 shrink-0" />
-      <div className="flex-1 min-w-0">
-        <p className="font-medium text-slate-700 text-sm">{cita.tipo}</p>
-        <p className="text-xs text-slate-400 mt-0.5">{fmtFecha(cita.fecha)}</p>
-      </div>
-      <span className={`text-xs font-medium px-2 py-0.5 rounded-full shrink-0 ${
-        ESTADO_BADGE[cita.estado] || 'bg-slate-100 text-slate-500'
-      }`}>
-        {cita.estado}
-      </span>
+
+      {modifiable ? (
+        <div className="flex gap-2 mt-3 pt-3 border-t border-slate-100">
+          <button
+            onClick={() => onRescheduleClick(cita)}
+            className="flex-1 py-2 text-xs font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+          >
+            Reprogramar
+          </button>
+          <button
+            onClick={() => onCancelClick(cita.id)}
+            className="flex-1 py-2 text-xs font-medium text-slate-500 border border-slate-200 rounded-lg hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors"
+          >
+            Cancelar cita
+          </button>
+        </div>
+      ) : (
+        <p className="text-center text-[10px] text-slate-300 mt-2 pt-2 border-t border-slate-100">
+          Gestión disponible hasta 2 horas antes
+        </p>
+      )}
     </div>
   );
 }
@@ -230,11 +269,13 @@ function BookingForm({ pacienteId, sinPlan, onSuccess, onCancel }) {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
+const EMPTY_CANCEL    = { open: false, citaId: null, loading: false, error: '' };
+const EMPTY_RESCHEDULE = { open: false, cita: null, fecha: '', hora: '', loading: false, error: '' };
+
 export default function PortalPage() {
   const { user, logout, isAuthenticated } = useAuth();
   const navigate = useNavigate();
 
-  // True when a patient is logged in via email/password (not anonymous QR access)
   const isAuthPatient = isAuthenticated && !!user?.paciente_id;
 
   const [cedula, setCedula]           = useState('');
@@ -246,9 +287,13 @@ export default function PortalPage() {
 
   // Registration form state
   const [showRegister, setShowRegister] = useState(false);
-  const [regForm, setRegForm]           = useState({ nombre: '', cedula: '', telefono: '' });
+  const [regForm, setRegForm]           = useState({ nombre: '', cedula: '', telefono: '', email: '' });
   const [regLoading, setRegLoading]     = useState(false);
   const [regError, setRegError]         = useState('');
+
+  // Cancel / reschedule modal state
+  const [cancelModal, setCancelModal]         = useState(EMPTY_CANCEL);
+  const [rescheduleModal, setRescheduleModal] = useState(EMPTY_RESCHEDULE);
 
   // Auto-load patient data for authenticated sessions (skip cedula form)
   useEffect(() => {
@@ -283,16 +328,19 @@ export default function PortalPage() {
     }
   }
 
+  async function refreshPaciente() {
+    try {
+      const data = await getPortalPaciente(paciente.paciente_id);
+      setPaciente(data);
+    } catch {
+      // stale data acceptable
+    }
+  }
+
   async function handleBookingSuccess(msg) {
     setBookingOpen(false);
     setSuccessMsg(msg);
-    try {
-      const id = paciente.paciente_id;
-      const data = await getPortalPaciente(id);
-      setPaciente(data);
-    } catch {
-      // stale data acceptable — cita was created
-    }
+    await refreshPaciente();
   }
 
   async function handleRegistro(e) {
@@ -308,6 +356,47 @@ export default function PortalPage() {
       setRegError(err.response?.data?.detail || 'Error al crear el perfil. Intenta de nuevo.');
     } finally {
       setRegLoading(false);
+    }
+  }
+
+  async function handleConfirmCancel() {
+    setCancelModal((m) => ({ ...m, loading: true, error: '' }));
+    try {
+      await portalCancelarCita(cancelModal.citaId, paciente.paciente_id);
+      setCancelModal(EMPTY_CANCEL);
+      setSuccessMsg('Tu sesión fue cancelada correctamente.');
+      await refreshPaciente();
+    } catch (err) {
+      setCancelModal((m) => ({
+        ...m,
+        loading: false,
+        error: err.response?.data?.detail || 'Error al cancelar. Intenta de nuevo.',
+      }));
+    }
+  }
+
+  async function handleConfirmReschedule() {
+    if (!rescheduleModal.fecha || !rescheduleModal.hora) {
+      setRescheduleModal((m) => ({ ...m, error: 'Selecciona la nueva fecha y hora.' }));
+      return;
+    }
+    setRescheduleModal((m) => ({ ...m, loading: true, error: '' }));
+    try {
+      await portalReprogramarCita(
+        rescheduleModal.cita.id,
+        paciente.paciente_id,
+        rescheduleModal.fecha,
+        `${rescheduleModal.hora}:00`,
+      );
+      setRescheduleModal(EMPTY_RESCHEDULE);
+      setSuccessMsg('Tu cita fue reprogramada correctamente.');
+      await refreshPaciente();
+    } catch (err) {
+      setRescheduleModal((m) => ({
+        ...m,
+        loading: false,
+        error: err.response?.data?.detail || 'Error al reprogramar. Intenta de nuevo.',
+      }));
     }
   }
 
@@ -329,7 +418,7 @@ export default function PortalPage() {
       <div className="bg-zinc-950 py-5 text-center">
         <h1 className="text-lg font-light tracking-widest uppercase text-white">Elysium</h1>
         <p className="text-[10px] text-zinc-400 uppercase tracking-widest mt-1">
-          Fisioterapia & Pilates
+          Fisioterapia &amp; Pilates
         </p>
       </div>
 
@@ -384,7 +473,7 @@ export default function PortalPage() {
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8">
             <h2 className="text-2xl font-bold text-slate-800 mb-1">Nuevo paciente</h2>
             <p className="text-slate-500 text-sm mb-6">
-              Solo necesitamos 3 datos. El equipo completará tu ficha cuando asistas a tu primera sesión.
+              Crea tu perfil para reservar tu Sesión de cortesía. El equipo completará tu ficha cuando asistas.
             </p>
             <form onSubmit={handleRegistro} className="space-y-4">
               <div>
@@ -425,6 +514,22 @@ export default function PortalPage() {
                   className="w-full border border-slate-200 rounded-xl px-4 py-3 text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-500 focus:border-transparent"
                 />
               </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-500 uppercase tracking-wide mb-1.5">
+                  Correo electrónico
+                </label>
+                <input
+                  type="email"
+                  inputMode="email"
+                  value={regForm.email}
+                  onChange={(e) => setRegForm((f) => ({ ...f, email: e.target.value }))}
+                  placeholder="Ej. maria@correo.com"
+                  className="w-full border border-slate-200 rounded-xl px-4 py-3 text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-500 focus:border-transparent"
+                />
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Recibirás la confirmación de tu cita en este correo.
+                </p>
+              </div>
               {regError && (
                 <div className="bg-red-50 border border-red-100 rounded-xl p-3 text-red-700 text-sm">
                   {regError}
@@ -432,7 +537,13 @@ export default function PortalPage() {
               )}
               <button
                 type="submit"
-                disabled={regLoading || !regForm.nombre.trim() || !regForm.cedula.trim() || !regForm.telefono.trim()}
+                disabled={
+                  regLoading ||
+                  !regForm.nombre.trim() ||
+                  !regForm.cedula.trim() ||
+                  !regForm.telefono.trim() ||
+                  !regForm.email.trim()
+                }
                 className="w-full bg-zinc-800 hover:bg-zinc-900 text-white font-semibold py-3.5 rounded-xl transition-all disabled:opacity-50 text-base"
               >
                 {regLoading ? 'Creando perfil…' : 'Crear mi perfil'}
@@ -440,7 +551,11 @@ export default function PortalPage() {
             </form>
             <div className="mt-5 pt-4 border-t border-slate-100 text-center">
               <button
-                onClick={() => { setShowRegister(false); setRegError(''); setRegForm({ nombre: '', cedula: '', telefono: '' }); }}
+                onClick={() => {
+                  setShowRegister(false);
+                  setRegError('');
+                  setRegForm({ nombre: '', cedula: '', telefono: '', email: '' });
+                }}
                 className="text-slate-400 hover:text-slate-600 text-sm"
               >
                 Ya tengo un perfil → Ingresar con cédula
@@ -473,13 +588,6 @@ export default function PortalPage() {
               </div>
             )}
 
-            {/* Error banner (auth auto-load failures) */}
-            {error && !paciente && (
-              <div className="bg-red-50 border border-red-100 rounded-xl p-4 text-red-700 text-sm">
-                {error}
-              </div>
-            )}
-
             {/* Plan */}
             {paciente.plan_activo ? (
               <PlanCard plan={paciente.plan_activo} />
@@ -500,7 +608,18 @@ export default function PortalPage() {
               {paciente.citas_proximas.length > 0 ? (
                 <div className="space-y-2">
                   {paciente.citas_proximas.map((c) => (
-                    <CitaCard key={c.id} cita={c} />
+                    <CitaCard
+                      key={c.id}
+                      cita={c}
+                      onCancelClick={(id) => {
+                        setSuccessMsg('');
+                        setCancelModal({ open: true, citaId: id, loading: false, error: '' });
+                      }}
+                      onRescheduleClick={(cita) => {
+                        setSuccessMsg('');
+                        setRescheduleModal({ open: true, cita, fecha: '', hora: '', loading: false, error: '' });
+                      }}
+                    />
                   ))}
                 </div>
               ) : (
@@ -535,6 +654,106 @@ export default function PortalPage() {
           </div>
         )}
       </div>
+
+      {/* ── Cancel modal ── */}
+      {cancelModal.open && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm">
+            <h3 className="font-bold text-slate-800 text-lg mb-2 text-center">Cancelar sesión</h3>
+            <p className="text-slate-500 text-sm text-center mb-1 leading-relaxed">
+              ¿Estás seguro de que deseas cancelar tu sesión?
+            </p>
+            <p className="text-slate-400 text-xs text-center mb-6">
+              Esta acción no se puede deshacer.
+            </p>
+            {cancelModal.error && (
+              <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-3 text-zinc-700 text-sm mb-4">
+                {cancelModal.error}
+              </div>
+            )}
+            <div className="flex gap-3">
+              <button
+                onClick={() => setCancelModal(EMPTY_CANCEL)}
+                disabled={cancelModal.loading}
+                className="flex-1 py-3 rounded-xl border border-slate-200 text-slate-700 text-sm font-medium hover:bg-slate-50 transition-colors disabled:opacity-50"
+              >
+                No, mantener
+              </button>
+              <button
+                onClick={handleConfirmCancel}
+                disabled={cancelModal.loading}
+                className="flex-1 py-3 rounded-xl bg-zinc-800 hover:bg-zinc-900 text-white text-sm font-semibold transition-all disabled:opacity-50"
+              >
+                {cancelModal.loading ? 'Cancelando…' : 'Sí, cancelar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Reschedule modal ── */}
+      {rescheduleModal.open && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm">
+            <h3 className="font-bold text-slate-800 text-lg mb-1">Reprogramar cita</h3>
+            {rescheduleModal.cita && (
+              <p className="text-slate-500 text-sm mb-5">
+                {rescheduleModal.cita.tipo} · {fmtFecha(rescheduleModal.cita.fecha)} {rescheduleModal.cita.hora.slice(0, 5)}
+              </p>
+            )}
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs text-slate-500 font-medium uppercase tracking-wide mb-1.5 block">
+                  Nueva fecha
+                </label>
+                <input
+                  type="date"
+                  value={rescheduleModal.fecha}
+                  min={toISO(new Date())}
+                  onChange={(e) => setRescheduleModal((m) => ({ ...m, fecha: e.target.value }))}
+                  className="w-full border border-slate-200 rounded-xl px-4 py-3 text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-500 focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-slate-500 font-medium uppercase tracking-wide mb-1.5 block">
+                  Nueva hora
+                </label>
+                <select
+                  value={rescheduleModal.hora}
+                  onChange={(e) => setRescheduleModal((m) => ({ ...m, hora: e.target.value }))}
+                  className="w-full border border-slate-200 rounded-xl px-4 py-3 text-slate-800 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-zinc-500 focus:border-transparent"
+                >
+                  <option value="">Selecciona la hora</option>
+                  {VALID_SLOTS.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+              </div>
+              {rescheduleModal.error && (
+                <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-3 text-zinc-700 text-sm">
+                  {rescheduleModal.error}
+                </div>
+              )}
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setRescheduleModal(EMPTY_RESCHEDULE)}
+                  disabled={rescheduleModal.loading}
+                  className="flex-1 py-3 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50 transition-colors disabled:opacity-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleConfirmReschedule}
+                  disabled={rescheduleModal.loading}
+                  className="flex-1 py-3 rounded-xl bg-zinc-800 hover:bg-zinc-900 text-white text-sm font-semibold transition-all disabled:opacity-50"
+                >
+                  {rescheduleModal.loading ? 'Guardando…' : 'Confirmar cambio'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

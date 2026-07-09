@@ -7,6 +7,9 @@ from contextlib import asynccontextmanager
 from datetime import date, timedelta
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from limiter import limiter
 from database import Base, engine, SessionLocal
 from models.paciente import Paciente  # noqa: F401
 from models.usuario import Usuario
@@ -157,7 +160,18 @@ async def lifespan(app: FastAPI):
             pass
 
 
-app = FastAPI(title="Elysium Agenda API", lifespan=lifespan)
+_IS_PROD = os.getenv("RAILWAY_ENVIRONMENT") == "production"
+
+app = FastAPI(
+    title="Elysium Agenda API",
+    lifespan=lifespan,
+    docs_url=None if _IS_PROD else "/docs",
+    redoc_url=None,
+    openapi_url=None if _IS_PROD else "/openapi.json",
+)
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 _origins_raw = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000")
 ALLOWED_ORIGINS = [o.strip() for o in _origins_raw.split(",")]

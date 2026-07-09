@@ -3,7 +3,7 @@ from datetime import date, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, field_validator
 from sqlalchemy.orm import Session
-from auth.jwt import get_current_user
+from auth.jwt import require_admin
 from database import get_db
 from models.pago import Pago
 
@@ -55,7 +55,7 @@ router = APIRouter()
 def list_pagos(
     paciente_id: str | None = Query(None),
     db: Session = Depends(get_db),
-    _: dict = Depends(get_current_user),
+    _: dict = Depends(require_admin),
 ):
     q = db.query(Pago)
     if paciente_id:
@@ -67,7 +67,7 @@ def list_pagos(
 def create_pago(
     data: PagoCreate,
     db: Session = Depends(get_db),
-    _: dict = Depends(get_current_user),
+    _: dict = Depends(require_admin),
 ):
     row = Pago(
         id                 = str(uuid.uuid4()),
@@ -88,7 +88,7 @@ def create_pago(
 def get_pago(
     pago_id: str,
     db: Session = Depends(get_db),
-    _: dict = Depends(get_current_user),
+    _: dict = Depends(require_admin),
 ):
     row = db.get(Pago, pago_id)
     if not row:
