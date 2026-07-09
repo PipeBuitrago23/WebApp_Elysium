@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from limiter import limiter
+from sqlalchemy import text
 from database import Base, engine, SessionLocal
 from models.paciente import Paciente  # noqa: F401
 from models.usuario import Usuario
@@ -26,6 +27,20 @@ from services.email import send_recordatorio
 logger = logging.getLogger(__name__)
 
 JOB_INTERVALO_SEG = 5 * 60  # run every 5 minutes
+
+
+def _run_migrations():
+    """Incremental schema changes that create_all cannot handle (existing tables).
+    Each statement uses IF NOT EXISTS / IF EXISTS so it is safe to run on every startup.
+    """
+    stmts = [
+        # Added after initial deploy — must exist for the reminder job and /citas queries
+        "ALTER TABLE citas ADD COLUMN IF NOT EXISTS recordatorio_enviado BOOLEAN NOT NULL DEFAULT FALSE",
+    ]
+    with engine.connect() as conn:
+        for stmt in stmts:
+            conn.execute(text(stmt))
+        conn.commit()
 
 
 def _seed_admin():
@@ -146,6 +161,7 @@ async def _job_recordatorios():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
+    _run_migrations()
     _seed_admin()
     _seed_paciente()
     task_vencidas      = asyncio.create_task(_job_citas_vencidas())
