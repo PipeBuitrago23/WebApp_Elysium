@@ -1,12 +1,13 @@
 import uuid
 from datetime import date, time
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, field_validator
 from sqlalchemy.orm import Session
 from database import get_db
 from models.cita import Cita
 from models.paciente import Paciente
 from models.pago import Pago
+from services.email import send_confirmacion
 
 TIPOS_VALIDOS = {"Fisioterapia", "Pilates", "Sesión de cortesía"}
 CAPACIDAD     = {"Fisioterapia": 2, "Pilates": 6, "Sesión de cortesía": 6}
@@ -135,7 +136,7 @@ def portal_registro(data: RegistroCreate, db: Session = Depends(get_db)):
 
 
 @router.post("/citas", response_model=CitaResumen, status_code=status.HTTP_201_CREATED)
-def portal_crear_cita(data: CitaPortalCreate, db: Session = Depends(get_db)):
+def portal_crear_cita(data: CitaPortalCreate, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     if not db.get(Paciente, data.paciente_id):
         raise HTTPException(status_code=404, detail="Paciente no encontrado.")
 
@@ -197,4 +198,15 @@ def portal_crear_cita(data: CitaPortalCreate, db: Session = Depends(get_db)):
     db.add(row)
     db.commit()
     db.refresh(row)
+
+    pac = db.get(Paciente, data.paciente_id)
+    if pac and pac.email:
+        email_plan = None if data.tipo == "Sesión de cortesía" else (
+            db.query(Pago)
+            .filter(Pago.paciente_id == data.paciente_id, Pago.sesiones_restantes > 0)
+            .order_by(Pago.fecha_pago.desc())
+            .first()
+        )
+        background_tasks.add_task(send_confirmacion, pac.nombre, pac.email, row, email_plan)
+
     return row

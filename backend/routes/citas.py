@@ -1,12 +1,14 @@
 import uuid
 from datetime import date, datetime, time, timedelta
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, field_validator
 from sqlalchemy.orm import Session
 from auth.jwt import get_current_user
 from database import get_db
 from models.cita import Cita
+from models.paciente import Paciente
 from models.pago import Pago
+from services.email import send_confirmacion
 
 TIPOS_VALIDOS       = {"Fisioterapia", "Pilates", "Sesión de cortesía"}
 CAPACIDAD           = {"Fisioterapia": 2, "Pilates": 6, "Sesión de cortesía": 6}
@@ -186,6 +188,7 @@ def get_cita(
 @router.post("/", response_model=CitaOut, status_code=status.HTTP_201_CREATED)
 def create_cita(
     data: CitaCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     _: dict = Depends(get_current_user),
 ):
@@ -222,6 +225,11 @@ def create_cita(
     db.add(row)
     db.commit()
     db.refresh(row)
+
+    pac = db.get(Paciente, data.paciente_id)
+    if pac and pac.email:
+        background_tasks.add_task(send_confirmacion, pac.nombre, pac.email, row, plan)
+
     return row
 
 

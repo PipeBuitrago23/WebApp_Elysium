@@ -18,6 +18,7 @@ from routes import citas
 from routes import pagos
 from routes import portal
 from routes.citas import procesar_citas_vencidas
+from services.email import send_recordatorio
 
 logger = logging.getLogger(__name__)
 
@@ -98,18 +99,62 @@ async def _job_citas_vencidas():
             logger.error("Job citas vencidas: %s", exc)
 
 
+async def _job_recordatorios():
+    """Background loop: send 24h reminder emails for tomorrow's appointments."""
+    while True:
+        await asyncio.sleep(60 * 60)  # run every hour
+        try:
+            db = SessionLocal()
+            try:
+                manana = date.today() + timedelta(days=1)
+                pendientes = (
+                    db.query(Cita)
+                    .filter(
+                        Cita.fecha == manana,
+                        Cita.recordatorio_enviado == False,  # noqa: E712
+                        Cita.estado.in_(["programada", "confirmada"]),
+                    )
+                    .all()
+                )
+                for cita in pendientes:
+                    pac = db.get(Paciente, cita.paciente_id)
+                    if pac and pac.email:
+                        plan = (
+                            db.query(Pago)
+                            .filter(
+                                Pago.paciente_id == cita.paciente_id,
+                                Pago.fecha_vencimiento >= manana,
+                                Pago.sesiones_restantes > 0,
+                            )
+                            .order_by(Pago.fecha_pago.desc())
+                            .first()
+                        )
+                        send_recordatorio(pac.nombre, pac.email, cita, plan)
+                    cita.recordatorio_enviado = True
+                if pendientes:
+                    db.commit()
+                    logger.info("Job recordatorios: %d enviado(s) para %s.", len(pendientes), manana)
+            finally:
+                db.close()
+        except Exception as exc:
+            logger.error("Job recordatorios: %s", exc)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
     _seed_admin()
     _seed_paciente()
-    task = asyncio.create_task(_job_citas_vencidas())
+    task_vencidas      = asyncio.create_task(_job_citas_vencidas())
+    task_recordatorios = asyncio.create_task(_job_recordatorios())
     yield
-    task.cancel()
-    try:
-        await task
-    except asyncio.CancelledError:
-        pass
+    task_vencidas.cancel()
+    task_recordatorios.cancel()
+    for task in (task_vencidas, task_recordatorios):
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
 
 app = FastAPI(title="Elysium Agenda API", lifespan=lifespan)
