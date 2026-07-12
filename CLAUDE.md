@@ -66,6 +66,7 @@ Both accounts are auto-seeded by `_seed_admin()` and `_seed_paciente()` in `main
 | Database | PostgreSQL 15 |
 | Infrastructure | Docker + Docker Compose (local) · Railway (production) |
 | Rate limiting | slowapi (5/min login · 10/min portal public endpoints) |
+| Email | Gmail SMTP via smtplib — env vars `GMAIL_USER` / `GMAIL_APP_PASSWORD` |
 | Future | n8n webhooks → WhatsApp API (Meta) for reminders |
 
 ## Running the Project
@@ -111,20 +112,25 @@ limiter.py           # slowapi Limiter instance shared across routers
 auth/
   jwt.py             # create_access_token / verify_token / get_current_user / require_admin
 models/
-  paciente.py        # Paciente table — PK column must be named 'Paciente' (string)
-  usuario.py         # Staff/admin users with bcrypt hashed passwords
+  paciente.py        # Paciente table — PK='Paciente' (string/cedula) · habeas_data_aceptado · fecha_aceptacion_habeas
+  usuario.py         # Staff/admin/patient users with bcrypt · habeas_data_aceptado · fecha_aceptacion_habeas
   cita.py            # Cita table — id (UUID), paciente_id (FK), fecha, hora, tipo, estado, notas, recordatorio_enviado
   pago.py            # Package purchase: tipo_paquete, total_sesiones, sesiones_restantes, fecha_pago, fecha_vencimiento
 routes/
-  auth.py            # POST /auth/login → JWT · rate-limited 5/min
+  auth.py            # POST /auth/login → JWT (includes habeas_data_aceptado) · rate-limited 5/min
+                     #   POST /auth/aceptar-habeas → persists consent + timestamps (requires JWT)
   pacientes.py       # Full CRUD /pacientes/ — require_admin
   citas.py           # Full CRUD /citas/ + background job procesar_citas_vencidas() — require_admin
   pagos.py           # POST /pagos/ + GET /pagos/?paciente_id= — require_admin
   portal.py          # Public (no JWT): GET /portal/paciente/{cedula}
-                     #   POST /portal/registro (nombre+cedula+telefono+email)
+                     #   POST /portal/registro (nombre+cedula+telefono+email+habeas_data_aceptado REQUIRED true)
                      #   POST /portal/citas (new booking)
                      #   POST /portal/citas/{id}/cancelar (2h window enforced)
                      #   POST /portal/citas/{id}/reprogramar (2h window enforced)
+services/
+  email.py           # send_confirmacion · send_recordatorio via Gmail SMTP
+                     #   reads GMAIL_USER + GMAIL_APP_PASSWORD at import time
+                     #   logs WARNING (not sent) when credentials are missing
 ```
 
 > **bcrypt note:** `passlib[bcrypt]` is installed but NOT used — passlib 1.7.4 is incompatible with bcrypt 4.x (raises ValueError on startup). All password hashing uses `import bcrypt` directly.
@@ -133,10 +139,12 @@ routes/
 
 ```
 index.js                    # Entry, imports index.css (Tailwind)
-App.js                      # Routes: /login (public) + /portal (public) + / (PrivateRoute admin)
+App.js                      # Routes + HabeasDataModal rendered outside Router inside AuthProvider
+                            #   HabeasDataModal: z-[100] backdrop-blur overlay for habeas_data_aceptado=false
+                            #   PolicyContent: reusable legal text component (Ley 1581/2012)
 index.css                   # @tailwind base/components/utilities
 api/
-  auth.js                   # loginRequest() — POST /auth/login (x-www-form-urlencoded)
+  auth.js                   # loginRequest() · aceptarHabeasData() → POST /auth/aceptar-habeas
   pacientes.js              # getPacientes, getPaciente, createPaciente, updatePaciente, deletePaciente
   citas.js                  # getCitas, createCita, patchCitaEstado, updateCita, deleteCita
   pagos.js                  # getPagos, createPago
@@ -144,7 +152,7 @@ api/
                             #   portalCancelarCita, portalReprogramarCita (no auth headers)
 context/
   AuthContext.js            # AuthProvider, useAuth() — JWT in sessionStorage (key: elysium_token)
-                            # login() returns decoded payload so LoginPage can redirect by role
+                            # login() returns decoded payload · acceptHabeas() updates user state in-memory
 layouts/
   DashboardLayout.js        # Sidebar + TopBar + <Outlet />
 components/
@@ -159,7 +167,7 @@ pages/
   AgendaPage.js             # Weekly view Lun–Sáb, 30-min slots, capacity badges, estado modal
   PortalPage.js             # Patient self-service: cedula entry OR auto-load (if logged in),
                             #   plan card + progress bar, upcoming citas with cancel/reschedule buttons,
-                            #   booking form, self-register form (with email field)
+                            #   booking form, self-register form (email + habeas checkbox + policy modal)
 ```
 
 ### Routing structure
@@ -182,12 +190,14 @@ pages/
   "nombre": "Administrador",
   "es_admin": true,
   "paciente_id": null,
+  "habeas_data_aceptado": false,
   "exp": 1234567890
 }
 ```
 
 - `es_admin=true` → admin, access to all protected routes
 - `es_admin=false` + `paciente_id="00000001"` → patient, portal auto-loads their data
+- `habeas_data_aceptado=false` → frontend shows `HabeasDataModal` blocking the UI until accepted
 - Frontend decodes with `atob(token.split('.')[1])` in `AuthContext.parseToken()`
 
 ### Data model — `citas.estado` valid values
@@ -236,12 +246,13 @@ New patients self-register via `/portal` → "Crea tu perfil aquí":
 - [x] `backend/models/pago.py` + `routes/pagos.py` — plan management
 - [x] `frontend/src/pages/NuevaCitaPage.js` — admin appointment booking form
 - [x] `frontend/src/pages/AgendaPage.js` — weekly view + estado modal + capacity badges
-- [x] `backend/routes/portal.py` — public routes: lookup, registro (with email), booking, cancelar, reprogramar
+- [x] `backend/routes/portal.py` — public routes: lookup, registro, booking, cancelar, reprogramar
 - [x] `frontend/src/pages/PortalPage.js` — patient portal: anonymous + authenticated + self-register + cancel/reschedule modals
-- [x] Email confirmación automática vía Gmail SMTP (booking + 24h reminder job)
+- [x] Email confirmación automática vía Gmail SMTP (booking + 24h reminder job) — `GMAIL_USER` / `GMAIL_APP_PASSWORD`
 - [x] Monochromatic zinc/gray brand identity across all pages and email templates
 - [x] Deployed to Railway (backend + PostgreSQL plugin + frontend)
 - [x] Security hardening: require_admin, sessionStorage JWT, rate limiting, /docs disabled in prod, advisory lock, input validation
+- [x] **Habeas Data (Ley 1581/2012):** consent fields on `usuarios` and `pacientes`; `POST /auth/aceptar-habeas`; JWT carries `habeas_data_aceptado`; `HabeasDataModal` intercepts existing users; checkbox + policy modal on registration form
 
 **Next to build:**
 - [ ] **Notificaciones WhatsApp** — n8n webhook → WhatsApp API (Meta) recordatorio 24h antes de la cita
@@ -267,3 +278,7 @@ New patients self-register via `/portal` → "Crea tu perfil aquí":
 9. **Schema migrations:** `create_all` only creates missing tables — it never alters existing ones. Any new column added to a model after initial deploy must also be added to `_run_migrations()` in `main.py` using `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`.
 
 10. **Portal 2h window:** Cancel and reschedule from the patient portal are blocked server-side when `datetime.now() >= cita_datetime - 2h`. The frontend mirrors this with `canModify(cita)` to disable buttons early, but the backend is the source of truth.
+
+11. **Habeas Data flow:** `habeas_data_aceptado` lives on both `Usuario` (for login-based users) and `Paciente` (for anonymous registrations). New patients: checkbox required in portal registration form (backend validates `habeas_data_aceptado=true`). Existing users: JWT carries the field; `HabeasDataModal` in `App.js` intercepts the UI when `user.habeas_data_aceptado === false` and calls `POST /auth/aceptar-habeas`. `acceptHabeas()` in `AuthContext` updates React state in-memory without requiring a re-login. Timestamp stored as UTC via `datetime.utcnow()`.
+
+12. **Email background task + ORM detachment:** When passing ORM objects to FastAPI `background_tasks.add_task()`, always call `db.refresh(obj)` on any object loaded **before** `db.commit()`. After commit, SQLAlchemy expires those objects' attributes; by the time the background task runs the session is already closed, causing a silent `DetachedInstanceError`. Objects loaded **after** `db.commit()` are fresh and safe to pass directly.

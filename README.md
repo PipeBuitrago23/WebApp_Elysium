@@ -16,6 +16,7 @@ Aplicación web para la gestión de citas, planes y pacientes de una clínica de
 ### Portal del Paciente
 - Acceso anónimo por número de cédula (flujo QR) o con email/contraseña
 - Auto-registro con nombre, cédula, teléfono y email
+- **Habeas Data (Ley 1581/2012):** checkbox de consentimiento obligatorio en el registro; modal de interceptación para usuarios existentes que no hayan aceptado aún, con texto legal completo de la Política de Privacidad
 - Vista del plan activo: tipo, sesiones restantes, barra de progreso, fecha de vencimiento
 - Reserva de citas (o Sesión de cortesía si no tiene plan)
 - **Cancelación y reprogramación** de citas con restricción de 2 horas de anticipación
@@ -77,8 +78,10 @@ docker compose down -v
 | `JWT_SECRET_KEY` | Clave secreta para firmar tokens JWT | cadena aleatoria de 32+ chars |
 | `ALLOWED_ORIGINS` | URLs de frontend permitidas (CORS), separadas por coma | `https://mi-app.up.railway.app` |
 | `GMAIL_USER` | Cuenta Gmail para envío de correos | `elysium@gmail.com` |
-| `GMAIL_APP_PASSWORD` | App Password de Google (no la contraseña de la cuenta) | `abcd efgh ijkl mnop` |
+| `GMAIL_APP_PASSWORD` | App Password de Google — **no** la contraseña de la cuenta | `abcd efgh ijkl mnop` |
 | `RAILWAY_ENVIRONMENT` | Activa modo producción (deshabilita /docs) | `production` |
+
+> **Correos:** Si `GMAIL_USER` o `GMAIL_APP_PASSWORD` no están configuradas, los correos se registran en el log con nivel `WARNING` y **no se envían**. Configúralas en el servicio de backend de Railway.
 
 ### Frontend
 | Variable | Descripción | Ejemplo |
@@ -111,18 +114,18 @@ WebApp_Elysium/
 │   ├── auth/
 │   │   └── jwt.py           # create_access_token · get_current_user · require_admin
 │   ├── models/
-│   │   ├── paciente.py      # PK = columna 'Paciente' (string/cédula)
-│   │   ├── usuario.py       # Usuarios admin y pacientes con bcrypt
+│   │   ├── paciente.py      # PK = columna 'Paciente' · habeas_data_aceptado · fecha_aceptacion_habeas
+│   │   ├── usuario.py       # Usuarios admin/pacientes con bcrypt · habeas_data_aceptado
 │   │   ├── cita.py          # fecha · hora · tipo · estado · recordatorio_enviado
 │   │   └── pago.py          # Plan: tipo · sesiones · vigencia 45 días
 │   ├── routes/
-│   │   ├── auth.py          # POST /auth/login — rate-limited 5/min
+│   │   ├── auth.py          # POST /auth/login (JWT+habeas) · POST /auth/aceptar-habeas · rate-limited 5/min
 │   │   ├── pacientes.py     # CRUD /pacientes/ — solo admin
 │   │   ├── citas.py         # CRUD /citas/ — solo admin · job penalización
 │   │   ├── pagos.py         # /pagos/ — solo admin
-│   │   └── portal.py        # /portal/* — público · rate-limited 10/min
+│   │   └── portal.py        # /portal/* — público · rate-limited 10/min · habeas requerido en registro
 │   └── services/
-│       └── email.py         # send_confirmacion · send_recordatorio (Gmail SMTP)
+│       └── email.py         # send_confirmacion · send_recordatorio (GMAIL_USER / GMAIL_APP_PASSWORD)
 └── frontend/
     └── src/
         ├── api/             # Clientes Axios por recurso
@@ -144,10 +147,17 @@ WebApp_Elysium/
 | Método | Ruta | Descripción |
 |--------|------|-------------|
 | GET | `/portal/paciente/{cedula}` | Carga plan y citas del paciente |
-| POST | `/portal/registro` | Auto-registro (nombre · cédula · teléfono · email) |
+| POST | `/portal/registro` | Auto-registro — requiere `habeas_data_aceptado: true` |
 | POST | `/portal/citas` | Reservar nueva cita |
 | POST | `/portal/citas/{id}/cancelar` | Cancelar cita (bloquea si faltan < 2h) |
 | POST | `/portal/citas/{id}/reprogramar` | Cambiar fecha/hora (bloquea si faltan < 2h) |
+
+### Endpoints de autenticación
+
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| POST | `/auth/login` | Login — devuelve JWT con `habeas_data_aceptado` |
+| POST | `/auth/aceptar-habeas` | Persiste aceptación Habeas Data (requiere JWT) |
 
 ---
 
@@ -158,6 +168,7 @@ WebApp_Elysium/
 - **Ventana de cancelación:** Libre si faltan > 2h. Dentro de las 2h → penalización automática.
 - **Capacidad:** Pilates 6 pacientes/slot · Fisioterapia 2 pacientes/slot · validado en backend.
 - **Sesión de cortesía:** Máximo una por paciente (excluye canceladas).
+- **Habeas Data (Ley 1581/2012):** `habeas_data_aceptado` requerido en registro. Usuarios existentes ven un modal de interceptación al iniciar sesión hasta aceptar. Se persiste con `fecha_aceptacion_habeas` en UTC.
 - **Migraciones:** Columnas nuevas en modelos existentes deben declararse en `_run_migrations()` en `main.py` con `ADD COLUMN IF NOT EXISTS`.
 
 ---
