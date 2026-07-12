@@ -31,7 +31,10 @@ services:
         condition: service_healthy
     environment:
       - DATABASE_URL=postgresql://admin:password_seguro@db:5432/elysium_agenda
-      - SECRET_KEY=dev-secret-key-change-in-production
+      - JWT_SECRET_KEY=dev-secret-key-change-in-production
+      # Email (local dev leaves these blank → emails go to the log, not sent)
+      - GMAIL_USER=
+      - GMAIL_APP_PASSWORD=
     volumes:
       - ./backend:/app
 

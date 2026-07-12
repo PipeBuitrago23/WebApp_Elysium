@@ -8,10 +8,16 @@ from urllib.parse import quote
 
 logger = logging.getLogger(__name__)
 
-SMTP_USER     = os.getenv("SMTP_USER")
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
-SMTP_HOST     = "smtp.gmail.com"
-SMTP_PORT     = 587
+GMAIL_USER     = os.getenv("GMAIL_USER")
+GMAIL_PASSWORD = os.getenv("GMAIL_APP_PASSWORD")
+SMTP_HOST      = "smtp.gmail.com"
+SMTP_PORT      = 587
+
+if not GMAIL_USER or not GMAIL_PASSWORD:
+    logger.warning(
+        "⚠️  GMAIL_USER o GMAIL_APP_PASSWORD no configuradas — "
+        "los correos se registrarán en el log pero NO se enviarán."
+    )
 
 PORTAL_URL      = os.getenv("PORTAL_URL", "http://localhost:3000/portal")
 CLINIC_MAPS_URL = os.getenv("CLINIC_MAPS_URL", "https://maps.google.com")
@@ -328,24 +334,32 @@ def _build_recordatorio_html(nombre: str, cita, plan) -> str:
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def _send(to_email: str, subject: str, html: str) -> None:
-    if not SMTP_USER or not SMTP_PASSWORD:
-        logger.info(
-            "📧 [EMAIL - modo log]\n  Para: %s\n  Asunto: %s\n\n%s\n",
-            to_email, subject, html,
+    if not GMAIL_USER or not GMAIL_PASSWORD:
+        logger.warning(
+            "📧 [EMAIL - modo log | credenciales no configuradas]\n  Para: %s\n  Asunto: %s",
+            to_email, subject,
         )
         return
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
-    msg["From"]    = f"Elysium Fisio-Pilates <{SMTP_USER}>"
+    msg["From"]    = f"Elysium Fisio-Pilates <{GMAIL_USER}>"
     msg["To"]      = to_email
     msg.attach(MIMEText(html, "html", "utf-8"))
 
-    with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
-        server.ehlo()
-        server.starttls()
-        server.login(SMTP_USER, SMTP_PASSWORD)
-        server.sendmail(SMTP_USER, to_email, msg.as_string())
+    try:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15) as server:
+            server.ehlo()
+            server.starttls()
+            server.login(GMAIL_USER, GMAIL_PASSWORD)
+            server.sendmail(GMAIL_USER, to_email, msg.as_string())
+        logger.info("📧 Email enviado a %s — %s", to_email, subject)
+    except smtplib.SMTPAuthenticationError:
+        logger.error("📧 Error SMTP: credenciales inválidas (GMAIL_USER=%s). Verifica GMAIL_APP_PASSWORD.", GMAIL_USER)
+        raise
+    except Exception as exc:
+        logger.error("📧 Error SMTP enviando a %s: %s", to_email, exc)
+        raise
 
 
 def send_confirmacion(nombre: str, email: str, cita, plan=None) -> None:

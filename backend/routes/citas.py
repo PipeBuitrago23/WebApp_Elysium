@@ -229,6 +229,7 @@ def create_cita(
     db.add(row)
     db.commit()
     db.refresh(row)
+    db.refresh(plan)  # plan was expired by the commit above; reload before detach
 
     pac = db.get(Paciente, data.paciente_id)
     if pac and pac.email:
