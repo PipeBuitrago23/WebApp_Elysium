@@ -75,6 +75,7 @@ class RegistroCreate(BaseModel):
     cedula: str
     telefono: str
     email: str
+    habeas_data_aceptado: bool = False
 
     @field_validator("nombre", "cedula", "telefono")
     @classmethod
@@ -90,6 +91,13 @@ class RegistroCreate(BaseModel):
         v = v.strip().lower()
         if not re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', v):
             raise ValueError("Ingresa un correo electrónico válido")
+        return v
+
+    @field_validator("habeas_data_aceptado")
+    @classmethod
+    def debe_aceptar(cls, v: bool) -> bool:
+        if not v:
+            raise ValueError("Debes aceptar el tratamiento de datos personales para continuar.")
         return v
 
 
@@ -171,6 +179,8 @@ def portal_registro(request: Request, data: RegistroCreate, db: Session = Depend
         nombre=data.nombre,
         telefono=data.telefono,
         email=data.email,
+        habeas_data_aceptado=True,
+        fecha_aceptacion_habeas=datetime.utcnow(),
     )
     db.add(pac)
     db.commit()

@@ -1,5 +1,5 @@
 import { createContext, useContext, useState } from 'react';
-import { loginRequest } from '../api/auth';
+import { loginRequest, aceptarHabeasData } from '../api/auth';
 
 const AuthContext = createContext(null);
 
@@ -33,8 +33,13 @@ export function AuthProvider({ children }) {
     setUser(null);
   };
 
+  const acceptHabeas = async () => {
+    await aceptarHabeasData(token);
+    setUser((prev) => ({ ...prev, habeas_data_aceptado: true }));
+  };
+
   return (
-    <AuthContext.Provider value={{ token, user, login, logout, isAuthenticated: !!token }}>
+    <AuthContext.Provider value={{ token, user, login, logout, acceptHabeas, isAuthenticated: !!token }}>
       {children}
     </AuthContext.Provider>
   );

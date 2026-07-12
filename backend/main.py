@@ -36,6 +36,11 @@ def _run_migrations():
     stmts = [
         # Added after initial deploy — must exist for the reminder job and /citas queries
         "ALTER TABLE citas ADD COLUMN IF NOT EXISTS recordatorio_enviado BOOLEAN NOT NULL DEFAULT FALSE",
+        # Habeas Data — Ley 1581 de 2012
+        "ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS habeas_data_aceptado BOOLEAN NOT NULL DEFAULT FALSE",
+        "ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS fecha_aceptacion_habeas TIMESTAMP",
+        "ALTER TABLE pacientes ADD COLUMN IF NOT EXISTS habeas_data_aceptado BOOLEAN NOT NULL DEFAULT FALSE",
+        "ALTER TABLE pacientes ADD COLUMN IF NOT EXISTS fecha_aceptacion_habeas TIMESTAMP",
     ]
     with engine.connect() as conn:
         for stmt in stmts:

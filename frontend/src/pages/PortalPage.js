@@ -287,9 +287,10 @@ export default function PortalPage() {
 
   // Registration form state
   const [showRegister, setShowRegister] = useState(false);
-  const [regForm, setRegForm]           = useState({ nombre: '', cedula: '', telefono: '', email: '' });
+  const [regForm, setRegForm]           = useState({ nombre: '', cedula: '', telefono: '', email: '', habeas_data_aceptado: false });
   const [regLoading, setRegLoading]     = useState(false);
   const [regError, setRegError]         = useState('');
+  const [policyOpen, setPolicyOpen]     = useState(false);
 
   // Cancel / reschedule modal state
   const [cancelModal, setCancelModal]         = useState(EMPTY_CANCEL);
@@ -530,6 +531,32 @@ export default function PortalPage() {
                   Recibirás la confirmación de tu cita en este correo.
                 </p>
               </div>
+
+              {/* ── Habeas Data checkbox ── */}
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={regForm.habeas_data_aceptado}
+                    onChange={(e) => setRegForm((f) => ({ ...f, habeas_data_aceptado: e.target.checked }))}
+                    className="mt-0.5 w-4 h-4 rounded border-slate-300 accent-zinc-800 cursor-pointer shrink-0"
+                  />
+                  <span className="text-slate-600 text-sm leading-relaxed select-none">
+                    Autorizo expresamente a ELYSIUM el tratamiento de mis datos personales
+                    y sensibles de salud para la gestión de mis citas y seguimiento de
+                    bienestar, conforme a su{' '}
+                    <button
+                      type="button"
+                      onClick={() => setPolicyOpen(true)}
+                      className="text-zinc-700 font-semibold underline underline-offset-2 hover:text-zinc-900 transition-colors"
+                    >
+                      Política de Privacidad
+                    </button>
+                    .
+                  </span>
+                </label>
+              </div>
+
               {regError && (
                 <div className="bg-red-50 border border-red-100 rounded-xl p-3 text-red-700 text-sm">
                   {regError}
@@ -542,7 +569,8 @@ export default function PortalPage() {
                   !regForm.nombre.trim() ||
                   !regForm.cedula.trim() ||
                   !regForm.telefono.trim() ||
-                  !regForm.email.trim()
+                  !regForm.email.trim() ||
+                  !regForm.habeas_data_aceptado
                 }
                 className="w-full bg-zinc-800 hover:bg-zinc-900 text-white font-semibold py-3.5 rounded-xl transition-all disabled:opacity-50 text-base"
               >
@@ -554,7 +582,7 @@ export default function PortalPage() {
                 onClick={() => {
                   setShowRegister(false);
                   setRegError('');
-                  setRegForm({ nombre: '', cedula: '', telefono: '', email: '' });
+                  setRegForm({ nombre: '', cedula: '', telefono: '', email: '', habeas_data_aceptado: false });
                 }}
                 className="text-slate-400 hover:text-slate-600 text-sm"
               >
@@ -685,6 +713,80 @@ export default function PortalPage() {
                 className="flex-1 py-3 rounded-xl bg-zinc-800 hover:bg-zinc-900 text-white text-sm font-semibold transition-all disabled:opacity-50"
               >
                 {cancelModal.loading ? 'Cancelando…' : 'Sí, cancelar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Privacy policy modal (from registration checkbox link) ── */}
+      {policyOpen && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[85vh]">
+            <div className="bg-zinc-950 px-6 py-4 rounded-t-2xl flex items-center justify-between shrink-0">
+              <p className="text-white text-xs font-light tracking-widest uppercase">
+                Política de Privacidad
+              </p>
+              <button
+                onClick={() => setPolicyOpen(false)}
+                className="text-zinc-400 hover:text-white text-2xl leading-none transition-colors"
+                aria-label="Cerrar"
+              >
+                ×
+              </button>
+            </div>
+            <div className="overflow-y-auto px-6 py-5 flex-1 space-y-4 text-slate-600 text-sm leading-relaxed">
+              <p className="font-bold text-slate-800 text-base">
+                Política de Privacidad y Tratamiento de Datos Personales
+              </p>
+              <p>
+                <span className="font-semibold text-slate-700">Responsable del Tratamiento:</span>{' '}
+                Elysium Fisio-Pilates, identificado con el NIT registrado en Cámara de Comercio, con domicilio en Colombia.
+              </p>
+              <p>
+                <span className="font-semibold text-slate-700">Finalidad del Tratamiento:</span>{' '}
+                Los datos personales y datos sensibles de salud recopilados serán tratados exclusivamente para:
+                (i) la gestión y agendamiento de citas terapéuticas; (ii) el seguimiento de la evolución
+                y bienestar del paciente; (iii) el envío de recordatorios y comunicaciones relacionadas con
+                el servicio; y (iv) el cumplimiento de obligaciones legales en materia de salud.
+              </p>
+              <p>
+                <span className="font-semibold text-slate-700">Datos Sensibles:</span>{' '}
+                Conforme a la Ley 1581 de 2012 y el Decreto 1377 de 2013, los datos de salud —incluyendo
+                historial clínico, antecedentes médicos, diagnósticos y evolución terapéutica— son
+                clasificados como <em>datos sensibles</em> y gozan de especial protección. Su tratamiento
+                requiere autorización expresa, libre, previa e informada del titular.
+              </p>
+              <p>
+                <span className="font-semibold text-slate-700">Derechos del Titular:</span>{' '}
+                Como titular de sus datos, usted tiene derecho a: conocer, actualizar, rectificar y
+                suprimir la información; ser informado sobre el uso que se da a sus datos; presentar
+                quejas ante la Superintendencia de Industria y Comercio (SIC); y revocar la autorización
+                en cualquier momento, siempre que no exista impedimento legal.
+              </p>
+              <p>
+                <span className="font-semibold text-slate-700">Conservación:</span>{' '}
+                La información será conservada durante el tiempo que dure la relación terapéutica y los
+                plazos legales de historias clínicas según la Resolución 1995 de 1999 del Ministerio de
+                Salud de Colombia (mínimo 15 años).
+              </p>
+              <p>
+                <span className="font-semibold text-slate-700">Transferencia:</span>{' '}
+                Elysium Fisio-Pilates no compartirá, venderá ni cederá sus datos a terceros sin su
+                consentimiento previo, salvo obligación legal.
+              </p>
+              <p>
+                <span className="font-semibold text-slate-700">Contacto:</span>{' '}
+                Para ejercer sus derechos comuníquese a través de los canales de atención de
+                Elysium Fisio-Pilates.
+              </p>
+            </div>
+            <div className="px-6 pb-5 pt-3 shrink-0 border-t border-slate-100">
+              <button
+                onClick={() => setPolicyOpen(false)}
+                className="w-full py-3 bg-zinc-800 hover:bg-zinc-900 text-white font-semibold rounded-xl text-sm transition-all"
+              >
+                Cerrar
               </button>
             </div>
           </div>

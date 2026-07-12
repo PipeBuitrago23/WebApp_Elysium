@@ -1,8 +1,9 @@
 import bcrypt
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
-from auth.jwt import create_access_token
+from auth.jwt import create_access_token, get_current_user
 from database import get_db
 from limiter import limiter
 from models.paciente import Paciente
@@ -39,5 +40,20 @@ def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db
         "nombre": user.nombre,
         "es_admin": user.es_admin,
         "paciente_id": paciente_id,
+        "habeas_data_aceptado": user.habeas_data_aceptado,
     })
     return {"access_token": token, "token_type": "bearer"}
+
+
+@router.post("/aceptar-habeas")
+def aceptar_habeas(
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    user = db.query(Usuario).filter(Usuario.email == current_user["sub"]).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    user.habeas_data_aceptado = True
+    user.fecha_aceptacion_habeas = datetime.utcnow()
+    db.commit()
+    return {"ok": True}

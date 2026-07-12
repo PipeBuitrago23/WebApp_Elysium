@@ -11,3 +11,12 @@ export async function loginRequest(email, password) {
   });
   return data;
 }
+
+export async function aceptarHabeasData(token) {
+  const { data } = await axios.post(
+    `${API_URL}/auth/aceptar-habeas`,
+    {},
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  return data;
+}
