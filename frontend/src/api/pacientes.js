@@ -37,8 +37,9 @@ export async function updatePaciente(id, body) {
   return data;
 }
 
-export async function deletePaciente(id) {
+export async function deletePaciente(id, force = false) {
   await axios.delete(`${API_URL}/pacientes/${id}`, {
     headers: authHeaders(),
+    params: force ? { force: true } : {},
   });
 }

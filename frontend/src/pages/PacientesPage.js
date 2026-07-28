@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CreditCard, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
+import { CreditCard, Eye, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
 import { getPacientes, createPaciente, updatePaciente, deletePaciente } from '../api/pacientes';
 import { getPagos, createPago } from '../api/pagos';
+import VerPacienteModal from '../components/VerPacienteModal';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -59,6 +60,8 @@ export default function PacientesPage() {
   const [modal,     setModal]     = useState(null);
   const [toDelete,  setToDelete]  = useState(null);
   const [deleteError, setDeleteError] = useState('');
+  const [canForceDelete, setCanForceDelete] = useState(false);
+  const [viewing,   setViewing]   = useState(null);
   const [saving,    setSaving]    = useState(false);
 
   // Active plan per patient (most recent non-expired with sessions left)
@@ -121,6 +124,7 @@ export default function PacientesPage() {
   function openDelete(id) {
     setToDelete(id);
     setDeleteError('');
+    setCanForceDelete(false);
   }
 
   // ── Handlers ────────────────────────────────────────────────────────────────
@@ -178,14 +182,16 @@ export default function PacientesPage() {
     }
   }
 
-  async function handleDelete() {
+  async function handleDelete(force = false) {
     setDeleteError('');
     try {
-      await deletePaciente(toDelete);
+      await deletePaciente(toDelete, force);
       setToDelete(null);
+      setCanForceDelete(false);
       fetchAll(search);
     } catch (err) {
       setDeleteError(err.response?.data?.detail || 'Error al eliminar paciente.');
+      setCanForceDelete(err.response?.status === 409);
     }
   }
 
@@ -262,6 +268,9 @@ export default function PacientesPage() {
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-1 justify-end">
+                      <button onClick={() => setViewing(p)} className="p-1.5 rounded hover:bg-slate-100 text-slate-400 hover:text-zinc-700 transition-colors">
+                        <Eye className="w-4 h-4" />
+                      </button>
                       <button onClick={() => openEdit(p)} className="p-1.5 rounded hover:bg-slate-100 text-slate-400 hover:text-zinc-700 transition-colors">
                         <Pencil className="w-4 h-4" />
                       </button>
@@ -294,6 +303,9 @@ export default function PacientesPage() {
                     <p className="text-xs text-slate-400 font-mono mt-0.5">{p.Paciente}</p>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
+                    <button onClick={() => setViewing(p)} className="p-1.5 rounded hover:bg-slate-100 text-slate-400 hover:text-zinc-700 transition-colors">
+                      <Eye className="w-4 h-4" />
+                    </button>
                     <button onClick={() => openEdit(p)} className="p-1.5 rounded hover:bg-slate-100 text-slate-400 hover:text-zinc-700 transition-colors">
                       <Pencil className="w-4 h-4" />
                     </button>
@@ -492,14 +504,45 @@ export default function PacientesPage() {
             {deleteError && (
               <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-3 mb-4">{deleteError}</p>
             )}
+            {canForceDelete && (
+              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
+                Si continúas, también se eliminarán permanentemente sus citas y pagos registrados.
+              </p>
+            )}
             <div className="flex justify-end gap-3">
-              <button onClick={() => { setToDelete(null); setDeleteError(''); }} className="px-4 py-2 text-sm text-slate-600 hover:text-slate-800">Cancelar</button>
-              <button onClick={handleDelete} className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-lg transition-colors">
-                Eliminar
+              <button
+                onClick={() => { setToDelete(null); setDeleteError(''); setCanForceDelete(false); }}
+                className="px-4 py-2 text-sm text-slate-600 hover:text-slate-800"
+              >
+                Cancelar
               </button>
+              {canForceDelete ? (
+                <button
+                  onClick={() => handleDelete(true)}
+                  className="px-5 py-2 bg-red-700 hover:bg-red-800 text-white text-sm font-medium rounded-lg transition-colors"
+                >
+                  Eliminar de todas formas
+                </button>
+              ) : (
+                <button
+                  onClick={() => handleDelete()}
+                  className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-lg transition-colors"
+                >
+                  Eliminar
+                </button>
+              )}
             </div>
           </div>
         </div>
+      )}
+
+      {/* Ver paciente */}
+      {viewing && (
+        <VerPacienteModal
+          paciente={viewing}
+          onClose={() => setViewing(null)}
+          onEdit={() => { openEdit(viewing); setViewing(null); }}
+        />
       )}
     </div>
   );

@@ -111,6 +111,7 @@ def update_paciente(
 @router.delete("/{paciente_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_paciente(
     paciente_id: str,
+    force: bool = Query(False, description="Elimina también las citas y pagos asociados"),
     db: Session = Depends(get_db),
     _: dict = Depends(require_admin),
 ):
@@ -122,11 +123,15 @@ def delete_paciente(
         db.query(Cita).filter(Cita.paciente_id == paciente_id).first() is not None
         or db.query(Pago).filter(Pago.paciente_id == paciente_id).first() is not None
     )
-    if tiene_historial:
+    if tiene_historial and not force:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Este paciente tiene citas o pagos registrados y no puede eliminarse — se conserva su historial clínico.",
         )
+
+    if force:
+        db.query(Cita).filter(Cita.paciente_id == paciente_id).delete()
+        db.query(Pago).filter(Pago.paciente_id == paciente_id).delete()
 
     db.delete(row)
     db.commit()
