@@ -47,3 +47,12 @@ def require_admin(current_user: dict = Depends(get_current_user)) -> dict:
             detail="Acceso restringido a administradores",
         )
     return current_user
+
+
+def require_medico(current_user: dict = Depends(get_current_user)) -> dict:
+    if not current_user.get("es_medico"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Acceso restringido a médicos",
+        )
+    return current_user

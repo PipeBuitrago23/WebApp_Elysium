@@ -157,6 +157,12 @@ function EstadoModal({ cita, pacientesMap, onClose, onUpdate }) {
           >
             {cita.tipo}
           </span>
+          <p className="text-xs text-slate-400 mt-2">
+            Médico remitente: <span className="text-slate-600 font-medium">{cita.medico_nombre || 'Directo'}</span>
+          </p>
+          {cita.motivo_remision && (
+            <p className="text-xs text-slate-400 mt-1 leading-snug">{cita.motivo_remision}</p>
+          )}
         </div>
 
         {/* Current estado */}

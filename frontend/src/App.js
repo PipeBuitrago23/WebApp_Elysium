@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import PrivateRoute from './components/PrivateRoute';
+import MedicoRoute from './components/MedicoRoute';
 import LoginPage from './pages/LoginPage';
 import DashboardLayout from './layouts/DashboardLayout';
 import DashboardHome from './pages/DashboardHome';
@@ -9,6 +10,8 @@ import PacientesPage from './pages/PacientesPage';
 import NuevaCitaPage from './pages/NuevaCitaPage';
 import AgendaPage from './pages/AgendaPage';
 import PortalPage from './pages/PortalPage';
+import MedicoPortalPage from './pages/MedicoPortalPage';
+import MedicosPage from './pages/MedicosPage';
 
 
 // ── Privacy policy content (shared between both modal layers) ─────────────────
@@ -203,6 +206,7 @@ function App() {
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/portal" element={<PortalPage />} />
+          <Route path="/medico" element={<MedicoRoute><MedicoPortalPage /></MedicoRoute>} />
           <Route
             path="/"
             element={<PrivateRoute><DashboardLayout /></PrivateRoute>}
@@ -212,6 +216,7 @@ function App() {
             <Route path="agenda"     element={<AgendaPage />} />
             <Route path="pacientes"  element={<PacientesPage />} />
             <Route path="nueva-cita" element={<NuevaCitaPage />} />
+            <Route path="medicos"    element={<MedicosPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>

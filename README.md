@@ -22,6 +22,18 @@ Aplicación web para la gestión de citas, planes y pacientes de una clínica de
 - **Cancelación y reprogramación** de citas con restricción de 2 horas de anticipación
 - Correo de confirmación automático al reservar
 
+### Médicos Externos en Convenio (v2.0)
+- Acceso propio por email/contraseña (creado por el admin, sin flujo anónimo)
+- Panel `/medico`: "Mis pacientes / citas agendadas" + formulario "Agendar nuevo paciente" con motivo de remisión
+- Al agendar, busca la cédula del paciente (reutiliza el perfil si ya existe) o crea uno nuevo
+- Las citas remitidas por un médico **no exigen plan de pago activo** (son consultas de remisión)
+- Solo ve las citas que él mismo remitió — nunca la agenda completa
+
+### Panel de Administración — Médicos
+- Módulo `/medicos`: listado + creación de cuentas de médico en convenio
+- Selector opcional de "Médico en convenio" al agendar cita desde el admin (`NuevaCitaPage`)
+- La agenda y el dashboard muestran el "Médico remitente" de cada cita (o "Directo" si no aplica)
+
 ### Automatizaciones
 - Job cada 5 min: penaliza citas pasadas sin resolver (`No asistió con penalización`)
 - Job cada hora: envía recordatorio por email 24h antes de cada cita
@@ -99,7 +111,7 @@ docker compose down -v
 | Admin | `admin@elysium.com` | `admin123` | `/dashboard` |
 | Paciente | `paciente@elysium.com` | `paciente123` | `/portal` (Carlos Pérez · cédula `00000001` · Pilates 8/12) |
 
-Ambas cuentas se crean automáticamente en cada arranque si no existen.
+Ambas cuentas se crean automáticamente en cada arranque si no existen. No hay cuenta de médico pre-creada — se crea desde `/medicos` (panel admin) o `POST /medicos/`.
 
 ---
 
@@ -112,26 +124,28 @@ WebApp_Elysium/
 │   ├── database.py          # Engine SQLAlchemy · SessionLocal · get_db()
 │   ├── limiter.py           # Instancia compartida de slowapi
 │   ├── auth/
-│   │   └── jwt.py           # create_access_token · get_current_user · require_admin
+│   │   └── jwt.py           # create_access_token · get_current_user · require_admin · require_medico
 │   ├── models/
 │   │   ├── paciente.py      # PK = columna 'Paciente' · habeas_data_aceptado · fecha_aceptacion_habeas
-│   │   ├── usuario.py       # Usuarios admin/pacientes con bcrypt · habeas_data_aceptado
-│   │   ├── cita.py          # fecha · hora · tipo · estado · recordatorio_enviado
+│   │   ├── usuario.py       # Usuarios admin/paciente/médico con bcrypt · es_admin · es_medico · habeas_data_aceptado
+│   │   ├── cita.py          # fecha · hora · tipo · estado · recordatorio_enviado · medico_id · motivo_remision
 │   │   └── pago.py          # Plan: tipo · sesiones · vigencia 45 días
 │   ├── routes/
-│   │   ├── auth.py          # POST /auth/login (JWT+habeas) · POST /auth/aceptar-habeas · rate-limited 5/min
+│   │   ├── auth.py          # POST /auth/login (JWT+habeas+es_medico) · POST /auth/aceptar-habeas · rate-limited 5/min
 │   │   ├── pacientes.py     # CRUD /pacientes/ — solo admin
-│   │   ├── citas.py         # CRUD /citas/ — solo admin · job penalización
+│   │   ├── citas.py         # CRUD /citas/ — solo admin · job penalización · medico_id/motivo_remision opcionales
 │   │   ├── pagos.py         # /pagos/ — solo admin
-│   │   └── portal.py        # /portal/* — público · rate-limited 10/min · habeas requerido en registro
+│   │   ├── portal.py        # /portal/* — público · rate-limited 10/min · habeas requerido en registro
+│   │   ├── medicos.py       # /medicos/ — solo admin · crear/listar cuentas de médico en convenio
+│   │   └── medico_portal.py # /medico/* — solo médico · agendar (sin plan requerido) + ver sus propias citas
 │   └── services/
 │       └── email.py         # send_confirmacion · send_recordatorio (GMAIL_USER / GMAIL_APP_PASSWORD)
 └── frontend/
     └── src/
-        ├── api/             # Clientes Axios por recurso
+        ├── api/             # Clientes Axios por recurso (incluye medicos.js, medicoPortal.js)
         ├── context/
         │   └── AuthContext.js   # JWT en sessionStorage
-        ├── components/      # Sidebar · TopBar · PrivateRoute
+        ├── components/      # Sidebar · TopBar · PrivateRoute · MedicoRoute
         ├── layouts/         # DashboardLayout
         └── pages/
             ├── LoginPage.js
@@ -139,7 +153,9 @@ WebApp_Elysium/
             ├── PacientesPage.js
             ├── NuevaCitaPage.js
             ├── AgendaPage.js
-            └── PortalPage.js
+            ├── PortalPage.js
+            ├── MedicosPage.js       # Admin: gestión de médicos en convenio
+            └── MedicoPortalPage.js  # Portal del médico: mis citas + agendar nuevo paciente
 ```
 
 ### Endpoints del portal (público)
@@ -156,8 +172,18 @@ WebApp_Elysium/
 
 | Método | Ruta | Descripción |
 |--------|------|-------------|
-| POST | `/auth/login` | Login — devuelve JWT con `habeas_data_aceptado` |
+| POST | `/auth/login` | Login — devuelve JWT con `habeas_data_aceptado`, `es_medico`, `medico_id` |
 | POST | `/auth/aceptar-habeas` | Persiste aceptación Habeas Data (requiere JWT) |
+| POST | `/auth/cambiar-password` | Cualquier usuario autenticado cambia su propia contraseña (requiere `password_actual`) |
+
+### Endpoints de médicos en convenio
+
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| GET | `/medicos/` | Lista médicos en convenio — solo admin |
+| POST | `/medicos/` | Crea una cuenta de médico (email+contraseña+nombre) — solo admin |
+| GET | `/medico/citas` | Citas remitidas por el médico autenticado — solo médico |
+| POST | `/medico/citas` | Agenda paciente (find-or-create por cédula) + cita, sin exigir plan activo — solo médico |
 
 ---
 
@@ -170,6 +196,7 @@ WebApp_Elysium/
 - **Sesión de cortesía:** Máximo una por paciente (excluye canceladas).
 - **Habeas Data (Ley 1581/2012):** `habeas_data_aceptado` requerido en registro. Usuarios existentes ven un modal de interceptación al iniciar sesión hasta aceptar. Se persiste con `fecha_aceptacion_habeas` en UTC.
 - **Migraciones:** Columnas nuevas en modelos existentes deben declararse en `_run_migrations()` en `main.py` con `ADD COLUMN IF NOT EXISTS`.
+- **Médicos en convenio:** citas con `medico_id` no exigen plan de pago activo (son remisiones). Si luego se marcan como `completada` o `No asistió con penalización` y el paciente sigue sin plan, simplemente no se descuenta sesión.
 
 ---
 

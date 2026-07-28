@@ -9,6 +9,7 @@ from database import get_db
 from models.cita import Cita
 from models.paciente import Paciente
 from models.pago import Pago
+from models.usuario import Usuario
 from services.email import send_confirmacion
 
 TIPOS_VALIDOS       = {"Fisioterapia", "Pilates", "Sesión de cortesía"}
@@ -27,8 +28,13 @@ def _cita_datetime(cita: Cita) -> datetime:
     return datetime.combine(cita.fecha, cita.hora)
 
 
-def _descuenta_sesion(db: Session, paciente_id: str) -> None:
-    """Deduct 1 session from the patient's most recent active plan."""
+def _descuenta_sesion(db: Session, paciente_id: str, required: bool = True) -> None:
+    """Deduct 1 session from the patient's most recent active plan.
+
+    Citas remitidas por un médico (medico_id set) no exigen plan activo, así que
+    required=False simplemente omite el descuento si no hay plan — igual que ya
+    toleraba procesar_citas_vencidas para no bloquear el flujo de remisión.
+    """
     pago = (
         db.query(Pago)
         .filter(
@@ -40,10 +46,12 @@ def _descuenta_sesion(db: Session, paciente_id: str) -> None:
         .first()
     )
     if not pago:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="El paciente no tiene sesiones disponibles en un plan activo.",
-        )
+        if required:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="El paciente no tiene sesiones disponibles en un plan activo.",
+            )
+        return
     pago.sesiones_restantes -= 1
 
 
@@ -72,18 +80,7 @@ def procesar_citas_vencidas(db: Session) -> int:
 
     procesadas = 0
     for cita in vencidas:
-        pago = (
-            db.query(Pago)
-            .filter(
-                Pago.paciente_id == cita.paciente_id,
-                Pago.fecha_vencimiento >= hoy,
-                Pago.sesiones_restantes > 0,
-            )
-            .order_by(Pago.fecha_pago.desc())
-            .first()
-        )
-        if pago:
-            pago.sesiones_restantes -= 1
+        _descuenta_sesion(db, cita.paciente_id, required=False)
         cita.estado = "No asistió con penalización"
         procesadas += 1
 
@@ -100,6 +97,8 @@ class CitaCreate(BaseModel):
     hora: time
     tipo: str
     notas: str | None = None
+    medico_id: str | None = None
+    motivo_remision: str | None = None
 
     @field_validator("hora")
     @classmethod
@@ -146,6 +145,33 @@ class CitaOut(BaseModel):
     tipo: str
     estado: str
     notas: str | None = None
+    medico_id: str | None = None
+    medico_nombre: str | None = None
+    motivo_remision: str | None = None
+
+
+def _citas_out(db: Session, citas: list[Cita]) -> list[CitaOut]:
+    """Resolve medico_nombre for a batch of citas in a single extra query."""
+    medico_ids = {c.medico_id for c in citas if c.medico_id}
+    medicos = {}
+    if medico_ids:
+        medicos = {u.id: u.nombre for u in db.query(Usuario).filter(Usuario.id.in_(medico_ids)).all()}
+
+    return [
+        CitaOut(
+            id=c.id,
+            paciente_id=c.paciente_id,
+            fecha=c.fecha,
+            hora=c.hora,
+            tipo=c.tipo,
+            estado=c.estado,
+            notas=c.notas,
+            medico_id=c.medico_id,
+            medico_nombre=medicos.get(c.medico_id),
+            motivo_remision=c.motivo_remision,
+        )
+        for c in citas
+    ]
 
 
 # ── Router ───────────────────────────────────────────────────────────────────
@@ -174,7 +200,7 @@ def list_citas(
         q = q.filter(Cita.paciente_id == paciente_id)
     if estado:
         q = q.filter(Cita.estado == estado)
-    return q.order_by(Cita.fecha, Cita.hora).all()
+    return _citas_out(db, q.order_by(Cita.fecha, Cita.hora).all())
 
 
 @router.get("/{cita_id}", response_model=CitaOut)
@@ -186,7 +212,7 @@ def get_cita(
     row = db.get(Cita, cita_id)
     if not row:
         raise HTTPException(status_code=404, detail="Cita no encontrada")
-    return row
+    return _citas_out(db, [row])[0]
 
 
 @router.post("/", response_model=CitaOut, status_code=status.HTTP_201_CREATED)
@@ -196,21 +222,29 @@ def create_cita(
     db: Session = Depends(get_db),
     _: dict = Depends(require_admin),
 ):
-    # ① Active plan must cover the appointment date
-    plan = (
-        db.query(Pago)
-        .filter(
-            Pago.paciente_id == data.paciente_id,
-            Pago.fecha_vencimiento >= data.fecha,
-            Pago.sesiones_restantes > 0,
+    if data.medico_id:
+        medico = db.query(Usuario).filter(Usuario.id == data.medico_id, Usuario.es_medico == True).first()  # noqa: E712
+        if not medico:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Médico no encontrado")
+
+    # ① Active plan must cover the appointment date — citas remitidas por un médico
+    # (medico_id) no lo exigen: son consultas de remisión, el paciente aún no tiene paquete.
+    plan = None
+    if not data.medico_id:
+        plan = (
+            db.query(Pago)
+            .filter(
+                Pago.paciente_id == data.paciente_id,
+                Pago.fecha_vencimiento >= data.fecha,
+                Pago.sesiones_restantes > 0,
+            )
+            .first()
         )
-        .first()
-    )
-    if not plan:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="El paciente no tiene un plan activo vigente para esa fecha.",
-        )
+        if not plan:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="El paciente no tiene un plan activo vigente para esa fecha.",
+            )
 
     # ② Slot capacity
     ocupados = db.query(Cita).filter(
@@ -229,13 +263,14 @@ def create_cita(
     db.add(row)
     db.commit()
     db.refresh(row)
-    db.refresh(plan)  # plan was expired by the commit above; reload before detach
+    if plan:
+        db.refresh(plan)  # plan was expired by the commit above; reload before detach
 
     pac = db.get(Paciente, data.paciente_id)
     if pac and pac.email:
         background_tasks.add_task(send_confirmacion, pac.nombre, pac.email, row, plan)
 
-    return row
+    return _citas_out(db, [row])[0]
 
 
 @router.patch("/{cita_id}/estado", response_model=CitaOut)
@@ -263,14 +298,15 @@ def patch_estado(
         if datetime.now() >= _cita_datetime(cita) - timedelta(hours=HORAS_CANCELACION):
             nuevo = "No asistió con penalización"
 
-    # Deduct session for attended or penalized outcomes
+    # Deduct session for attended or penalized outcomes.
+    # Citas remitidas por un médico no exigen plan activo (ver create_cita).
     if nuevo in ESTADOS_CON_DESCUENTO:
-        _descuenta_sesion(db, cita.paciente_id)
+        _descuenta_sesion(db, cita.paciente_id, required=cita.medico_id is None)
 
     cita.estado = nuevo
     db.commit()
     db.refresh(cita)
-    return cita
+    return _citas_out(db, [cita])[0]
 
 
 @router.put("/{cita_id}", response_model=CitaOut)
@@ -287,7 +323,7 @@ def update_cita(
         setattr(row, field, value)
     db.commit()
     db.refresh(row)
-    return row
+    return _citas_out(db, [row])[0]
 
 
 @router.delete("/{cita_id}", status_code=status.HTTP_204_NO_CONTENT)

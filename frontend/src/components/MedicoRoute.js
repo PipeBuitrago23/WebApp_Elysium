@@ -1,9 +1,9 @@
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
-export default function PrivateRoute({ children }) {
+export default function MedicoRoute({ children }) {
   const { isAuthenticated, user } = useAuth();
   if (!isAuthenticated) return <Navigate to="/login" replace />;
-  if (!user?.es_admin) return <Navigate to={user?.es_medico ? '/medico' : '/portal'} replace />;
+  if (!user?.es_medico) return <Navigate to="/login" replace />;
   return children;
 }

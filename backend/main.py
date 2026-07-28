@@ -21,6 +21,8 @@ from routes import pacientes
 from routes import citas
 from routes import pagos
 from routes import portal
+from routes import medicos
+from routes import medico_portal
 from routes.citas import procesar_citas_vencidas
 from services.email import send_recordatorio
 
@@ -41,6 +43,10 @@ def _run_migrations():
         "ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS fecha_aceptacion_habeas TIMESTAMP",
         "ALTER TABLE pacientes ADD COLUMN IF NOT EXISTS habeas_data_aceptado BOOLEAN NOT NULL DEFAULT FALSE",
         "ALTER TABLE pacientes ADD COLUMN IF NOT EXISTS fecha_aceptacion_habeas TIMESTAMP",
+        # Médicos externos en convenio — v2.0
+        "ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS es_medico BOOLEAN NOT NULL DEFAULT FALSE",
+        "ALTER TABLE citas ADD COLUMN IF NOT EXISTS medico_id VARCHAR REFERENCES usuarios(id)",
+        "ALTER TABLE citas ADD COLUMN IF NOT EXISTS motivo_remision TEXT",
     ]
     with engine.connect() as conn:
         for stmt in stmts:
@@ -210,6 +216,8 @@ app.include_router(pacientes.router, prefix="/pacientes", tags=["pacientes"])
 app.include_router(citas.router, prefix="/citas", tags=["citas"])
 app.include_router(pagos.router, prefix="/pagos", tags=["pagos"])
 app.include_router(portal.router, prefix="/portal", tags=["portal"])
+app.include_router(medicos.router, prefix="/medicos", tags=["medicos"])
+app.include_router(medico_portal.router, prefix="/medico", tags=["medico-portal"])
 
 
 @app.get("/health")

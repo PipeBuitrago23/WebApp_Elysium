@@ -14,3 +14,5 @@ class Cita(Base):
     estado = Column(String, nullable=False, default="programada")
     notas = Column(Text)
     recordatorio_enviado = Column(Boolean, nullable=False, default=False, server_default="false")
+    medico_id = Column(String, ForeignKey("usuarios.id"), nullable=True)
+    motivo_remision = Column(Text, nullable=True)

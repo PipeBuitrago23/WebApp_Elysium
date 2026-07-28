@@ -11,5 +11,6 @@ class Usuario(Base):
     hashed_password = Column(String, nullable=False)
     nombre = Column(String, nullable=False)
     es_admin = Column(Boolean, default=False)
+    es_medico = Column(Boolean, default=False)
     habeas_data_aceptado = Column(Boolean, nullable=False, default=False, server_default="false")
     fecha_aceptacion_habeas = Column(DateTime, nullable=True)

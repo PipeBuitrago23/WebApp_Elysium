@@ -6,6 +6,7 @@ const titles = {
   '/agenda':     'Agenda',
   '/pacientes':  'Pacientes',
   '/nueva-cita': 'Nueva Cita',
+  '/medicos':    'Médicos en Convenio',
 };
 
 export default function TopBar({ onMenuClick }) {

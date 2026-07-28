@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { CheckCircle, Search } from 'lucide-react';
 import { getPacientes } from '../api/pacientes';
 import { createCita } from '../api/citas';
+import { getMedicos } from '../api/medicos';
 
 const TIPOS = ['Fisioterapia', 'Pilates', 'Sesión de cortesía'];
 
@@ -14,11 +15,12 @@ for (let h = 7; h <= 18; h++) {
 
 const today = () => new Date().toISOString().split('T')[0];
 
-const EMPTY = { paciente_id: '', fecha: today(), hora: '', tipo: '', notas: '' };
+const EMPTY = { paciente_id: '', fecha: today(), hora: '', tipo: '', notas: '', medico_id: '', motivo_remision: '' };
 
 export default function NuevaCitaPage() {
   const [form, setForm] = useState({ ...EMPTY });
   const [pacientes, setPacientes] = useState([]);
+  const [medicos, setMedicos] = useState([]);
   const [patientQuery, setPatientQuery] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -28,6 +30,7 @@ export default function NuevaCitaPage() {
 
   useEffect(() => {
     getPacientes().then(setPacientes).catch(() => {});
+    getMedicos().then(setMedicos).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -69,6 +72,7 @@ export default function NuevaCitaPage() {
         hora: form.hora + ':00',
         tipo: form.tipo,
         ...(form.notas ? { notas: form.notas } : {}),
+        ...(form.medico_id ? { medico_id: form.medico_id, motivo_remision: form.motivo_remision || undefined } : {}),
       });
       setSuccess(cita);
       setForm({ ...EMPTY, fecha: form.fecha });
@@ -213,6 +217,39 @@ export default function NuevaCitaPage() {
               className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-500 resize-none"
             />
           </div>
+
+          {/* Médico en convenio */}
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">
+              Médico en convenio <span className="text-slate-400 font-normal">(opcional)</span>
+            </label>
+            <select
+              name="medico_id"
+              value={form.medico_id}
+              onChange={handleChange}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-500 bg-white"
+            >
+              <option value="">Directo (sin remisión)</option>
+              {medicos.map((m) => (
+                <option key={m.id} value={m.id}>{m.nombre}</option>
+              ))}
+            </select>
+          </div>
+
+          {form.medico_id && (
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">
+                Motivo de remisión <span className="text-slate-400 font-normal">(opcional)</span>
+              </label>
+              <textarea
+                name="motivo_remision"
+                value={form.motivo_remision}
+                onChange={handleChange}
+                rows={2}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-500 resize-none"
+              />
+            </div>
+          )}
 
           <div className="pt-1">
             <button

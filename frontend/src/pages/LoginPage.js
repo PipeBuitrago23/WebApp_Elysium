@@ -16,7 +16,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const decoded = await login(email, password);
-      navigate(decoded?.es_admin ? '/dashboard' : '/portal');
+      navigate(decoded?.es_admin ? '/dashboard' : decoded?.es_medico ? '/medico' : '/portal');
     } catch {
       setError('Correo o contraseña incorrectos.');
     } finally {

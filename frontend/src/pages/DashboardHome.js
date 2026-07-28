@@ -398,6 +398,7 @@ export default function DashboardHome() {
                   <th className="px-6 py-3 text-left font-medium">Hora</th>
                   <th className="px-6 py-3 text-left font-medium">Paciente</th>
                   <th className="px-6 py-3 text-left font-medium">Tipo</th>
+                  <th className="px-6 py-3 text-left font-medium">Médico</th>
                   <th className="px-6 py-3 text-left font-medium">Estado</th>
                 </tr>
               </thead>
@@ -411,6 +412,7 @@ export default function DashboardHome() {
                         {c.tipo}
                       </span>
                     </td>
+                    <td className="px-6 py-3.5 text-slate-500">{c.medico_nombre || 'Directo'}</td>
                     <td className="px-6 py-3.5">
                       <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${ESTADO_STYLE[c.estado] || 'bg-slate-100 text-slate-600'}`}>
                         {c.estado}
@@ -432,9 +434,12 @@ export default function DashboardHome() {
                     <p className="text-sm font-medium text-slate-700 truncate">
                       {pacientesMap[c.paciente_id] || c.paciente_id}
                     </p>
-                    <span className={`text-xs font-medium px-2 py-0.5 rounded mt-1 inline-block ${TIPO_STYLE[c.tipo] || 'bg-slate-100 text-slate-600'}`}>
-                      {c.tipo}
-                    </span>
+                    <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                      <span className={`text-xs font-medium px-2 py-0.5 rounded inline-block ${TIPO_STYLE[c.tipo] || 'bg-slate-100 text-slate-600'}`}>
+                        {c.tipo}
+                      </span>
+                      <span className="text-[10px] text-slate-400">{c.medico_nombre || 'Directo'}</span>
+                    </div>
                   </div>
                   <span className={`text-xs font-semibold px-2 py-0.5 rounded-full shrink-0 ${ESTADO_STYLE[c.estado] || 'bg-slate-100 text-slate-600'}`}>
                     {c.estado}

@@ -1,17 +1,21 @@
+import { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { CalendarDays, LayoutDashboard, LogOut, PlusCircle, Users, X } from 'lucide-react';
+import { CalendarDays, KeyRound, LayoutDashboard, LogOut, PlusCircle, Stethoscope, Users, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import CambiarPasswordModal from './CambiarPasswordModal';
 
 const navItems = [
   { to: '/dashboard', label: 'Inicio',      Icon: LayoutDashboard },
   { to: '/agenda',    label: 'Agenda',       Icon: CalendarDays    },
   { to: '/pacientes', label: 'Pacientes',    Icon: Users           },
   { to: '/nueva-cita',label: 'Nueva Cita',   Icon: PlusCircle      },
+  { to: '/medicos',   label: 'Médicos',      Icon: Stethoscope     },
 ];
 
 export default function Sidebar({ isOpen, onClose }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
 
   const handleLogout = () => {
     logout();
@@ -66,6 +70,13 @@ export default function Sidebar({ isOpen, onClose }) {
           <p className="text-xs text-zinc-500 truncate">{user?.sub}</p>
         </div>
         <button
+          onClick={() => setShowPasswordModal(true)}
+          className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors"
+        >
+          <KeyRound size={18} />
+          Cambiar contraseña
+        </button>
+        <button
           onClick={handleLogout}
           className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors"
         >
@@ -73,6 +84,10 @@ export default function Sidebar({ isOpen, onClose }) {
           Cerrar sesión
         </button>
       </div>
+
+      {showPasswordModal && (
+        <CambiarPasswordModal onClose={() => setShowPasswordModal(false)} />
+      )}
     </aside>
   );
 }

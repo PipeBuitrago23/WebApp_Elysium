@@ -20,3 +20,12 @@ export async function aceptarHabeasData(token) {
   );
   return data;
 }
+
+export async function cambiarPassword(token, passwordActual, passwordNueva) {
+  const { data } = await axios.post(
+    `${API_URL}/auth/cambiar-password`,
+    { password_actual: passwordActual, password_nueva: passwordNueva },
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  return data;
+}
