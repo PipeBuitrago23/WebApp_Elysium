@@ -17,6 +17,11 @@ export async function portalCrearCita(body) {
   return data;
 }
 
+export async function portalCrearCitaRecurrente(body) {
+  const { data } = await axios.post(`${BASE}/portal/citas/recurrente`, body);
+  return data;
+}
+
 export async function portalCancelarCita(citaId, pacienteId) {
   const { data } = await axios.post(`${BASE}/portal/citas/${citaId}/cancelar`, {
     paciente_id: pacienteId,

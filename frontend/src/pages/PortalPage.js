@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import {
   getPortalPaciente,
   portalCrearCita,
+  portalCrearCitaRecurrente,
   portalRegistro,
   portalCancelarCita,
   portalReprogramarCita,
@@ -148,10 +149,16 @@ function CitaCard({ cita, onCancelClick, onRescheduleClick }) {
   );
 }
 
+const SEMANAS_OPCIONES = [2, 3, 4, 6, 8];
+
 function BookingForm({ pacienteId, sinPlan, onSuccess, onCancel }) {
   const [form, setForm]       = useState(() => ({ tipo: sinPlan ? 'Sesión de cortesía' : 'Pilates', fecha: '', hora: '' }));
+  const [repetir, setRepetir] = useState(false);
+  const [semanas, setSemanas] = useState(4);
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState('');
+
+  const puedeRepetir = !sinPlan;
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -162,13 +169,31 @@ function BookingForm({ pacienteId, sinPlan, onSuccess, onCancel }) {
     setLoading(true);
     setError('');
     try {
-      await portalCrearCita({
-        paciente_id: pacienteId,
-        fecha: form.fecha,
-        hora: `${form.hora}:00`,
-        tipo: form.tipo,
-      });
-      onSuccess(`Cita de ${form.tipo} reservada para el ${fmtFecha(form.fecha)} a las ${form.hora}.`);
+      if (puedeRepetir && repetir) {
+        const resultado = await portalCrearCitaRecurrente({
+          paciente_id: pacienteId,
+          fecha_inicio: form.fecha,
+          hora: `${form.hora}:00`,
+          tipo: form.tipo,
+          repeticiones: semanas,
+        });
+        const dia = DAYS_ES[new Date(`${form.fecha}T00:00:00`).getDay()];
+        let msg = `Se agendaron ${resultado.creadas.length} de ${semanas} sesiones de ${form.tipo}, cada ${dia} a las ${form.hora}.`;
+        if (resultado.omitidas.length > 0) {
+          msg += '\nNo se pudieron agendar: ' + resultado.omitidas
+            .map((o) => `${fmtFecha(o.fecha)} (${o.motivo})`)
+            .join(', ');
+        }
+        onSuccess(msg);
+      } else {
+        await portalCrearCita({
+          paciente_id: pacienteId,
+          fecha: form.fecha,
+          hora: `${form.hora}:00`,
+          tipo: form.tipo,
+        });
+        onSuccess(`Cita de ${form.tipo} reservada para el ${fmtFecha(form.fecha)} a las ${form.hora}.`);
+      }
     } catch (err) {
       setError(err.response?.data?.detail || 'Error al reservar. Intenta de nuevo.');
     } finally {
@@ -240,6 +265,50 @@ function BookingForm({ pacienteId, sinPlan, onSuccess, onCancel }) {
           </select>
         </div>
 
+        {puedeRepetir && (
+          <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
+            <label className="flex items-center gap-3 cursor-pointer select-none">
+              <button
+                type="button"
+                role="switch"
+                aria-checked={repetir}
+                onClick={() => setRepetir((r) => !r)}
+                className={`relative w-10 h-5 rounded-full transition-colors shrink-0 ${repetir ? 'bg-zinc-800' : 'bg-slate-200'}`}
+              >
+                <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${repetir ? 'translate-x-5' : 'translate-x-0'}`} />
+              </button>
+              <span className="text-sm font-medium text-slate-700">Repetir esta cita cada semana</span>
+            </label>
+
+            {repetir && (
+              <div className="mt-3 pt-3 border-t border-slate-200">
+                <label className="text-xs text-slate-500 font-medium uppercase tracking-wide mb-1.5 block">
+                  ¿Cuántas semanas en total?
+                </label>
+                <div className="flex gap-2 flex-wrap">
+                  {SEMANAS_OPCIONES.map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() => setSemanas(n)}
+                      className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+                        semanas === n
+                          ? 'bg-zinc-800 text-white border-zinc-800'
+                          : 'bg-white text-slate-600 border-slate-200 hover:border-zinc-400'
+                      }`}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-slate-400 mt-2">
+                  Cada sesión se valida por separado — si algún día tu plan ya no está vigente o el horario está lleno, te avisamos cuáles no se pudieron agendar.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
         {error && (
           <div className="bg-red-50 border border-red-100 rounded-xl p-3 text-red-700 text-sm">
             {error}
@@ -259,7 +328,7 @@ function BookingForm({ pacienteId, sinPlan, onSuccess, onCancel }) {
             disabled={loading}
             className="flex-1 py-3 rounded-xl bg-zinc-800 hover:bg-zinc-900 text-white text-sm font-semibold transition-all disabled:opacity-50"
           >
-            {loading ? 'Reservando…' : 'Confirmar reserva'}
+            {loading ? 'Reservando…' : (repetir && puedeRepetir ? `Reservar ${semanas} sesiones` : 'Confirmar reserva')}
           </button>
         </div>
       </form>
@@ -611,7 +680,7 @@ export default function PortalPage() {
 
             {/* Success banner */}
             {successMsg && (
-              <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-green-700 text-sm">
+              <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-green-700 text-sm whitespace-pre-line">
                 {successMsg}
               </div>
             )}

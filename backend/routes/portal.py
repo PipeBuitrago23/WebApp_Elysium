@@ -2,7 +2,7 @@ import re
 import uuid
 from datetime import date, datetime, time, timedelta
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.orm import Session
 from database import get_db
 from limiter import limiter
@@ -68,6 +68,40 @@ class CitaPortalCreate(BaseModel):
         if v not in TIPOS_VALIDOS:
             raise ValueError("Tipo de cita inválido")
         return v
+
+
+class CitaRecurrenteCreate(BaseModel):
+    paciente_id: str
+    fecha_inicio: date
+    hora: time
+    tipo: str
+    repeticiones: int = Field(ge=2, le=12)
+
+    @field_validator("hora")
+    @classmethod
+    def hora_valida(cls, v: time) -> time:
+        if v.minute not in (0, 30) or v.second != 0:
+            raise ValueError("La hora debe ser :00 o :30")
+        if not (HORA_MIN <= v <= HORA_MAX):
+            raise ValueError("Horario fuera de ventana permitida (07:00–18:30)")
+        return v
+
+    @field_validator("tipo")
+    @classmethod
+    def tipo_valido(cls, v: str) -> str:
+        if v not in ("Fisioterapia", "Pilates"):
+            raise ValueError("Las citas recurrentes solo aplican para Fisioterapia o Pilates")
+        return v
+
+
+class CitaOmitida(BaseModel):
+    fecha: date
+    motivo: str
+
+
+class CitaRecurrenteOut(BaseModel):
+    creadas: list[CitaResumen]
+    omitidas: list[CitaOmitida]
 
 
 class RegistroCreate(BaseModel):
@@ -264,6 +298,82 @@ def portal_crear_cita(request: Request, data: CitaPortalCreate, background_tasks
         background_tasks.add_task(send_confirmacion, pac.nombre, pac.email, row, email_plan)
 
     return row
+
+
+@router.post("/citas/recurrente", response_model=CitaRecurrenteOut, status_code=status.HTTP_201_CREATED)
+@limiter.limit("10/minute")
+def portal_crear_cita_recurrente(
+    request: Request,
+    data: CitaRecurrenteCreate,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    """Agenda la misma cita semana a semana. Cada ocurrencia se valida por separado
+    (plan vigente + cupo); las que no se puedan agendar se reportan en 'omitidas'
+    en vez de abortar todo el lote.
+    """
+    pac = db.get(Paciente, data.paciente_id)
+    if not pac:
+        raise HTTPException(status_code=404, detail="Paciente no encontrado.")
+
+    creadas: list[tuple[Cita, Pago]] = []
+    omitidas: list[CitaOmitida] = []
+
+    for i in range(data.repeticiones):
+        fecha = data.fecha_inicio + timedelta(weeks=i)
+
+        plan = (
+            db.query(Pago)
+            .filter(
+                Pago.paciente_id == data.paciente_id,
+                Pago.fecha_vencimiento >= fecha,
+                Pago.sesiones_restantes > 0,
+            )
+            .first()
+        )
+        if not plan:
+            omitidas.append(CitaOmitida(fecha=fecha, motivo="Tu plan no está vigente para esa fecha."))
+            continue
+
+        ocupados = (
+            db.query(Cita)
+            .filter(
+                Cita.fecha == fecha,
+                Cita.hora == data.hora,
+                Cita.tipo == data.tipo,
+                Cita.estado.notin_(["cancelada"]),
+            )
+            .count()
+        )
+        if ocupados >= CAPACIDAD[data.tipo]:
+            omitidas.append(CitaOmitida(fecha=fecha, motivo="Ese horario ya está lleno."))
+            continue
+
+        row = Cita(
+            id=str(uuid.uuid4()),
+            paciente_id=data.paciente_id,
+            fecha=fecha,
+            hora=data.hora,
+            tipo=data.tipo,
+            estado="programada",
+        )
+        db.add(row)
+        creadas.append((row, plan))
+
+    if creadas:
+        db.commit()
+
+    pac = db.get(Paciente, data.paciente_id)  # re-fetch fresh: prior commit expired it
+    for row, plan in creadas:
+        db.refresh(row)
+        db.refresh(plan)
+        if pac and pac.email:
+            background_tasks.add_task(send_confirmacion, pac.nombre, pac.email, row, plan)
+
+    return CitaRecurrenteOut(
+        creadas=[CitaResumen.model_validate(row) for row, _ in creadas],
+        omitidas=omitidas,
+    )
 
 
 @router.post("/citas/{cita_id}/cancelar", response_model=CitaResumen)
