@@ -4,7 +4,9 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 from auth.jwt import require_admin
 from database import get_db
+from models.cita import Cita
 from models.paciente import Paciente
+from models.pago import Pago
 
 
 # ── Schemas ──────────────────────────────────────────────────────────────────
@@ -115,5 +117,16 @@ def delete_paciente(
     row = db.get(Paciente, paciente_id)
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paciente no encontrado")
+
+    tiene_historial = (
+        db.query(Cita).filter(Cita.paciente_id == paciente_id).first() is not None
+        or db.query(Pago).filter(Pago.paciente_id == paciente_id).first() is not None
+    )
+    if tiene_historial:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Este paciente tiene citas o pagos registrados y no puede eliminarse — se conserva su historial clínico.",
+        )
+
     db.delete(row)
     db.commit()
