@@ -7,11 +7,13 @@ Aplicación web para la gestión de citas, planes y pacientes de una clínica de
 ## Funcionalidades
 
 ### Panel de Administración
-- Dashboard con métricas en tiempo real (citas hoy/semana/mes, pacientes activos/inactivos)
+- Dashboard con métricas en tiempo real (citas hoy/semana/mes, pacientes activos/inactivos) + PieChart de ventas del mes por categoría
 - Agenda semanal con slots de 30 minutos, badges de capacidad y cambio de estado de citas
 - CRUD completo de pacientes (búsqueda, anamnesis, historial)
 - Registro de pagos/planes (Pilates o Fisioterapia, 45 días de vigencia, sesiones restantes)
 - Formulario de nueva cita con validación de capacidad por slot
+- **Módulo de Ventas (`/ventas`):** registro de ingresos por paquete con autofill de catálogo de precios, badge Pagado/Pendiente, abono y saldo en tiempo real; envía correo de confirmación de pago al paciente con desglose y fecha de vencimiento del plan (45 días)
+- **Módulo de Gastos (`/gastos`):** registro de egresos con proveedor, NIT, método de pago y descripción
 
 ### Portal del Paciente
 - Acceso anónimo por número de cédula (flujo QR) o con email/contraseña
@@ -44,10 +46,10 @@ Aplicación web para la gestión de citas, planes y pacientes de una clínica de
 
 | Capa | Tecnología |
 |------|-----------|
-| Frontend | React 18 · Tailwind CSS 3 · React Router 6 · Axios · Lucide React |
+| Frontend | React 18 · Tailwind CSS 3 · React Router 6 · Axios · Lucide React · Recharts |
 | Backend | Python 3.11 · FastAPI · SQLAlchemy 2.x · python-jose · bcrypt · slowapi |
 | Base de datos | PostgreSQL 15 |
-| Email | Gmail SMTP (smtplib, STARTTLS, port 587) |
+| Email | Resend API (HTTP) — `RESEND_API_KEY` + `RESEND_FROM` opcionales |
 | Infraestructura local | Docker + Docker Compose |
 | Producción | Railway (backend + PostgreSQL plugin + frontend) |
 
@@ -89,11 +91,13 @@ docker compose down -v
 | `DATABASE_URL` | Cadena de conexión PostgreSQL | `postgresql://user:pass@host:5432/db` |
 | `JWT_SECRET_KEY` | Clave secreta para firmar tokens JWT | cadena aleatoria de 32+ chars |
 | `ALLOWED_ORIGINS` | URLs de frontend permitidas (CORS), separadas por coma | `https://mi-app.up.railway.app` |
-| `GMAIL_USER` | Cuenta Gmail para envío de correos | `elysium@gmail.com` |
-| `GMAIL_APP_PASSWORD` | App Password de Google — **no** la contraseña de la cuenta | `abcd efgh ijkl mnop` |
+| `RESEND_API_KEY` | API key de Resend para envío de correos transaccionales | `re_xxxxxxxxxxxx` |
+| `RESEND_FROM` | Remitente (opcional) | `Elysium <hola@tudominio.com>` |
+| `PORTAL_URL` | URL pública del portal del paciente (usada en botones de correo) | `https://frontend.up.railway.app/portal` |
+| `CLINIC_MAPS_URL` | Link de Google Maps a la ubicación de la clínica | `https://share.google/EgQMvc66qfIIYYDZM` |
 | `RAILWAY_ENVIRONMENT` | Activa modo producción (deshabilita /docs) | `production` |
 
-> **Correos:** Si `GMAIL_USER` o `GMAIL_APP_PASSWORD` no están configuradas, los correos se registran en el log con nivel `WARNING` y **no se envían**. Configúralas en el servicio de backend de Railway.
+> **Correos:** Si `RESEND_API_KEY` no está configurada, los correos se registran en el log con nivel `WARNING` y **no se envían**. Railway bloquea el puerto SMTP 587, por eso se usa Resend API (HTTP) en lugar de Gmail SMTP.
 
 ### Frontend
 | Variable | Descripción | Ejemplo |
@@ -129,7 +133,9 @@ WebApp_Elysium/
 │   │   ├── paciente.py      # PK = columna 'Paciente' · habeas_data_aceptado · fecha_aceptacion_habeas
 │   │   ├── usuario.py       # Usuarios admin/paciente/médico con bcrypt · es_admin · es_medico · habeas_data_aceptado
 │   │   ├── cita.py          # fecha · hora · tipo · estado · recordatorio_enviado · medico_id · motivo_remision
-│   │   └── pago.py          # Plan: tipo · sesiones · vigencia 45 días
+│   │   ├── pago.py          # Plan: tipo · sesiones · vigencia 45 días
+│   │   ├── venta.py         # Ingresos: paciente_id · nombre_paquete · categoria · valor_total · abono · saldo · estado
+│   │   └── gasto.py         # Egresos: nombre · nit · valor · fecha · metodo_pago · descripcion
 │   ├── routes/
 │   │   ├── auth.py          # POST /auth/login (JWT+habeas+es_medico) · POST /auth/aceptar-habeas · rate-limited 5/min
 │   │   ├── pacientes.py     # CRUD /pacientes/ — solo admin
@@ -137,25 +143,31 @@ WebApp_Elysium/
 │   │   ├── pagos.py         # /pagos/ — solo admin
 │   │   ├── portal.py        # /portal/* — público · rate-limited 10/min · habeas requerido en registro
 │   │   ├── medicos.py       # /medicos/ — solo admin · crear/listar cuentas de médico en convenio
-│   │   └── medico_portal.py # /medico/* — solo médico · agendar (sin plan requerido) + ver sus propias citas
+│   │   ├── medico_portal.py # /medico/* — solo médico · agendar (sin plan requerido) + ver sus propias citas
+│   │   ├── ventas.py        # CRUD /ventas/ — solo admin · envía correo de pago al paciente al crear
+│   │   └── gastos.py        # CRUD /gastos/ — solo admin
 │   └── services/
-│       └── email.py         # send_confirmacion · send_recordatorio (GMAIL_USER / GMAIL_APP_PASSWORD)
+│       └── email.py         # send_confirmacion · send_recordatorio · send_confirmacion_pago — Resend API (HTTP)
 └── frontend/
     └── src/
-        ├── api/             # Clientes Axios por recurso (incluye medicos.js, medicoPortal.js)
+        ├── api/             # Clientes Axios por recurso (auth, pacientes, citas, pagos, portal, medicos, medicoPortal, ventas, gastos)
+        ├── constants/
+        │   └── packages.js  # Catálogo de precios: Pilates (individual/x2), Fisioterapia, Combos, Prendas de Vestir
         ├── context/
         │   └── AuthContext.js   # JWT en sessionStorage
         ├── components/      # Sidebar · TopBar · PrivateRoute · MedicoRoute
         ├── layouts/         # DashboardLayout
         └── pages/
             ├── LoginPage.js
-            ├── DashboardHome.js
+            ├── DashboardHome.js      # + PieChart de ventas del mes por categoría (recharts)
             ├── PacientesPage.js
             ├── NuevaCitaPage.js
             ├── AgendaPage.js
             ├── PortalPage.js
-            ├── MedicosPage.js       # Admin: gestión de médicos en convenio
-            └── MedicoPortalPage.js  # Portal del médico: mis citas + agendar nuevo paciente
+            ├── MedicosPage.js        # Admin: gestión de médicos en convenio
+            ├── MedicoPortalPage.js   # Portal del médico: mis citas + agendar nuevo paciente
+            ├── VentasPage.js         # Módulo de ingresos con autofill de catálogo y badges Pagado/Pendiente
+            └── GastosPage.js         # Módulo de egresos
 ```
 
 ### Endpoints del portal (público)
@@ -185,6 +197,17 @@ WebApp_Elysium/
 | GET | `/medico/citas` | Citas remitidas por el médico autenticado — solo médico |
 | POST | `/medico/citas` | Agenda paciente (find-or-create por cédula) + cita, sin exigir plan activo — solo médico |
 
+### Endpoints financieros
+
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| GET | `/ventas/` | Lista ventas con filtros (paciente, categoría, estado, fechas) — solo admin |
+| POST | `/ventas/` | Registra venta · calcula saldo · envía correo de confirmación al paciente — solo admin |
+| DELETE | `/ventas/{id}` | Elimina venta — solo admin |
+| GET | `/gastos/` | Lista gastos con filtros de fecha — solo admin |
+| POST | `/gastos/` | Registra gasto — solo admin |
+| DELETE | `/gastos/{id}` | Elimina gasto — solo admin |
+
 ---
 
 ## Reglas de negocio clave
@@ -203,3 +226,4 @@ WebApp_Elysium/
 ## Pendiente
 
 - [ ] **Notificaciones WhatsApp** — n8n webhook → API de WhatsApp (Meta) · recordatorio 24h antes de la cita
+- [ ] Configurar `PORTAL_URL` en Railway apuntando al frontend para que el botón "Ver mi portal" en los correos lleve a la URL correcta en producción

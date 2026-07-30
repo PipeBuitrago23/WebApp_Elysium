@@ -67,7 +67,7 @@ Admin and test patient are auto-seeded by `_seed_admin()` and `_seed_paciente()`
 
 | Layer | Technology |
 |-------|-----------|
-| Frontend | React 18, Tailwind CSS 3, React Router 6, Axios, Lucide-React |
+| Frontend | React 18, Tailwind CSS 3, React Router 6, Axios, Lucide-React, Recharts |
 | Backend | Python 3.11 / FastAPI, SQLAlchemy, python-jose (JWT), bcrypt |
 | Database | PostgreSQL 15 |
 | Infrastructure | Docker + Docker Compose (local) · Railway (production) |
@@ -123,6 +123,8 @@ models/
   cita.py            # Cita table — id (UUID), paciente_id (FK), fecha, hora, tipo, estado, notas, recordatorio_enviado,
                      #   medico_id (FK → usuarios.id, nullable), motivo_remision (nullable)
   pago.py            # Package purchase: tipo_paquete, total_sesiones, sesiones_restantes, fecha_pago, fecha_vencimiento
+  venta.py           # Financial income: paciente_id (FK), nombre_paquete, categoria, total_sesiones, valor_total, abono, saldo, fecha, metodo_pago, estado (pagada|pendiente)
+  gasto.py           # Financial expense: nombre, nit (nullable), valor, fecha, metodo_pago, descripcion (nullable)
 routes/
   auth.py            # POST /auth/login → JWT (includes habeas_data_aceptado, es_medico, medico_id) · rate-limited 5/min
                      #   POST /auth/aceptar-habeas → persists consent + timestamps (requires JWT)
@@ -140,10 +142,15 @@ routes/
   medicos.py         # Admin-only médico management: GET/POST /medicos/ (list/create Usuario with es_medico=True)
   medico_portal.py   # require_medico: GET /medico/citas (own referrals only) · POST /medico/citas
                      #   (find-or-create Paciente by cédula + create Cita with medico_id/motivo_remision, no plan check)
+  ventas.py          # require_admin: GET /ventas/ (filters: paciente_id, categoria, estado, fecha_desde, fecha_hasta)
+                     #   POST /ventas/ → validates paciente, abono ≤ valor_total, computes saldo+estado, triggers send_confirmacion_pago in background
+                     #   DELETE /ventas/{id}
+  gastos.py          # require_admin: GET /gastos/ (date filters) · POST /gastos/ · DELETE /gastos/{id}
 services/
-  email.py           # send_confirmacion · send_recordatorio via Resend API (HTTP, no SMTP)
-                     #   reads RESEND_API_KEY at import time; RESEND_FROM optional
-                     #   logs WARNING (not sent) when API key is missing
+  email.py           # send_confirmacion · send_recordatorio · send_confirmacion_pago via Resend API (HTTP, no SMTP)
+                     #   reads RESEND_API_KEY + RESEND_FROM + PORTAL_URL + CLINIC_MAPS_URL at import time
+                     #   send_confirmacion_pago: includes paquete, valor, abono, saldo, estado badge, 45-day expiry block (when total_sesiones set)
+                     #   logs WARNING (not sent) when RESEND_API_KEY missing
 ```
 
 > **bcrypt note:** `passlib[bcrypt]` is installed but NOT used — passlib 1.7.4 is incompatible with bcrypt 4.x (raises ValueError on startup). All password hashing uses `import bcrypt` directly.
@@ -165,6 +172,10 @@ api/
                             #   portalCancelarCita, portalReprogramarCita (no auth headers)
   medicos.js                # getMedicos, createMedico — admin médico management
   medicoPortal.js           # getMisCitas, crearCitaMedico — médico self-service
+  ventas.js                 # getVentas, createVenta, deleteVenta
+  gastos.js                 # getGastos, createGasto, deleteGasto
+constants/
+  packages.js               # METODOS_PAGO · CATEGORIAS · PACKAGES catalog (Pilates individual+x2, Fisioterapia, Combos, Prendas de Vestir)
 context/
   AuthContext.js            # AuthProvider, useAuth() — JWT in sessionStorage (key: elysium_token)
                             # login() returns decoded payload · acceptHabeas() updates user state in-memory
@@ -180,6 +191,7 @@ pages/
   LoginPage.js              # Login form — redirects to /dashboard (admin), /medico (médico), or /portal (patient)
   DashboardHome.js          # Real stats: citas hoy/semana/mes by tipo, pacientes activos/inactivos, próxima cita,
                             #   "Citas de hoy" table shows médico remitente ("Directo" if none)
+                            #   PieChart (recharts donut) of current-month ventas by categoria
   PacientesPage.js          # Searchable table + create/edit modal + delete confirm
   NuevaCitaPage.js          # Admin appointment booking form + optional "Médico en convenio" select + motivo_remision
   AgendaPage.js             # Weekly view Lun–Sáb, 30-min slots, capacity badges, estado modal (shows médico remitente)
@@ -188,6 +200,9 @@ pages/
                             #   booking form, self-register form (email + habeas checkbox + policy modal)
   MedicosPage.js            # Admin: table of médicos + "Nuevo médico" modal (nombre/email/password)
   MedicoPortalPage.js       # Médico self-service: "Mis pacientes/citas" tab + "Agendar nuevo paciente" tab
+  VentasPage.js             # Income module: NuevaVentaModal (patient search, categoria→paquete autofill, live saldo),
+                            #   PAID/PENDING badges, summary cards (total, ingresos mes, pendientes)
+  GastosPage.js             # Expense module: NuevoGastoModal (nombre, nit optional, valor, metodo_pago, descripcion)
 ```
 
 ### Routing structure
@@ -197,11 +212,13 @@ pages/
 /portal                   → PortalPage (public) — anonymous (cedula) or authenticated (email+password)
 /medico                   → MedicoRoute (es_medico=true required) → MedicoPortalPage
 / (PrivateRoute — admin only, es_admin=true required)
-  /dashboard              → DashboardHome (real stats)
+  /dashboard              → DashboardHome (real stats + PieChart ventas)
   /agenda                 → AgendaPage
   /pacientes              → PacientesPage
   /nueva-cita             → NuevaCitaPage
   /medicos                → MedicosPage
+  /ventas                 → VentasPage
+  /gastos                 → GastosPage
 ```
 
 ### JWT payload structure
@@ -249,6 +266,34 @@ Terminal states (`completada`, `cancelada`, `"No asistió con penalización"`) a
 | fecha_pago | Date | registered by admin |
 | fecha_vencimiento | Date | computed server-side: fecha_pago + 45 days |
 
+### Data model — `ventas` table
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | String (UUID) | PK |
+| paciente_id | String | FK → pacientes.Paciente |
+| nombre_paquete | String | e.g. "Plan Pro 8 Ses – Individual" |
+| categoria | String | Pilates \| Fisioterapia \| Combos \| Prendas de Vestir |
+| total_sesiones | Integer (nullable) | null for Prendas de Vestir |
+| valor_total | Float | |
+| abono | Float | amount paid up-front |
+| saldo | Float | computed: valor_total − abono |
+| fecha | Date | payment date (admin-provided) |
+| metodo_pago | String | Efectivo \| Transferencia \| Tarjeta \| Otro |
+| estado | String | pagada (saldo==0) \| pendiente (saldo>0) |
+
+### Data model — `gastos` table
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | String (UUID) | PK |
+| nombre | String | vendor/concept |
+| nit | String (nullable) | vendor tax ID |
+| valor | Float | |
+| fecha | Date | |
+| metodo_pago | String | Efectivo \| Transferencia \| Tarjeta \| Otro |
+| descripcion | String (nullable) | free text |
+
 ### Patient registration flow
 
 New patients self-register via `/portal` → "Crea tu perfil aquí":
@@ -273,15 +318,17 @@ New patients self-register via `/portal` → "Crea tu perfil aquí":
 - [x] `frontend/src/pages/AgendaPage.js` — weekly view + estado modal + capacity badges
 - [x] `backend/routes/portal.py` — public routes: lookup, registro, booking, cancelar, reprogramar
 - [x] `frontend/src/pages/PortalPage.js` — patient portal: anonymous + authenticated + self-register + cancel/reschedule modals
-- [x] Email confirmación automática vía Gmail SMTP (booking + 24h reminder job) — `GMAIL_USER` / `GMAIL_APP_PASSWORD`
+- [x] Email confirmación automática vía Resend API (booking + 24h reminder job) — `RESEND_API_KEY` / `RESEND_FROM` (Railway blocks SMTP port 587; HTTP API bypasses this)
 - [x] Monochromatic zinc/gray brand identity across all pages and email templates
 - [x] Deployed to Railway (backend + PostgreSQL plugin + frontend)
 - [x] Security hardening: require_admin, sessionStorage JWT, rate limiting, /docs disabled in prod, advisory lock, input validation
 - [x] **Habeas Data (Ley 1581/2012):** consent fields on `usuarios` and `pacientes`; `POST /auth/aceptar-habeas`; JWT carries `habeas_data_aceptado`; `HabeasDataModal` intercepts existing users; checkbox + policy modal on registration form
 - [x] **Médicos Externos en Convenio (v2.0):** `es_medico` role on `Usuario`; `medico_id`/`motivo_remision` on `Cita`; `routes/medicos.py` (admin CRUD) + `routes/medico_portal.py` (médico self-service, no active-plan requirement); `/medico` and `/medicos` frontend routes; médico remitente visible in `AgendaPage`/`DashboardHome`/`NuevaCitaPage`
+- [x] **Módulo financiero (Ventas + Gastos):** `models/venta.py` + `models/gasto.py`; `routes/ventas.py` + `routes/gastos.py` (require_admin); `VentasPage.js` (autofill catálogo, badges Pagado/Pendiente, abono/saldo live); `GastosPage.js`; PieChart en Dashboard (recharts donut, ventas del mes por categoría); `send_confirmacion_pago` con bloque de vigencia 45 días
 
 **Next to build:**
 - [ ] **Notificaciones WhatsApp** — n8n webhook → WhatsApp API (Meta) recordatorio 24h antes de la cita
+- [ ] Configurar `PORTAL_URL` en Railway apuntando al frontend (el correo de pago ya lo usa, pero el default es localhost)
 
 ## Critical Design Rules
 
