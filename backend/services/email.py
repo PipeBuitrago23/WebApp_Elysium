@@ -363,7 +363,11 @@ def _build_pago_html(nombre: str, venta) -> str:
         return f"${v:,.0f}".replace(",", ".")
 
     sesiones_row = ""
+    vencimiento_row = ""
+    vencimiento_block = ""
     if venta.total_sesiones:
+        venc = venta.fecha + timedelta(days=45)
+        venc_fmt = f"{_DAYS[venc.weekday()]} {venc.day} de {_MONTHS[venc.month-1]} de {venc.year}"
         sesiones_row = f"""
           <tr>
             <td style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.15);">
@@ -371,6 +375,22 @@ def _build_pago_html(nombre: str, venta) -> str:
               <span style="color:#ffffff;font-size:18px;font-weight:700;">{venta.total_sesiones}</span>
             </td>
           </tr>"""
+        vencimiento_row = f"""
+          <tr>
+            <td style="padding:10px 0;">
+              <span style="color:#d4d4d8;font-size:11px;display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:1px;">Plan válido hasta</span>
+              <span style="color:#facc15;font-size:16px;font-weight:700;">{venc_fmt}</span>
+            </td>
+          </tr>"""
+        vencimiento_block = f"""
+      <div style="background:#f0fdf4;border-radius:12px;padding:20px;margin-bottom:28px;border:1px solid #bbf7d0;">
+        <p style="color:#15803d;font-size:12px;font-weight:700;margin:0 0 10px;text-transform:uppercase;letter-spacing:0.5px;">📅 Vigencia del plan</p>
+        <p style="color:#166534;font-size:14px;margin:0;line-height:1.9;">
+          Tienes <strong>45 días</strong> para usar todas tus sesiones.<br>
+          Tu plan vence el <strong>{venc_fmt}</strong>.<br>
+          Pasada esta fecha, las sesiones no utilizadas no podrán recuperarse.
+        </p>
+      </div>"""
 
     saldo_color = "#ef4444" if venta.saldo > 0 else "#22c55e"
     saldo_label = "Saldo pendiente" if venta.saldo > 0 else "Saldo"
@@ -427,8 +447,11 @@ def _build_pago_html(nombre: str, venta) -> str:
             </td>
           </tr>
           {sesiones_row}
+          {vencimiento_row}
         </table>
       </div>
+
+      {vencimiento_block}
 
       <div style="text-align:center;margin-bottom:28px;">
         {estado_badge}
