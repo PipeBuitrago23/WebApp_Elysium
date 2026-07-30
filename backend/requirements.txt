@@ -7,3 +7,4 @@ passlib[bcrypt]
 bcrypt
 python-multipart
 slowapi
+resend

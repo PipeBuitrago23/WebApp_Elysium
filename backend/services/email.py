@@ -1,23 +1,22 @@
 import logging
 import os
-import smtplib
 from datetime import datetime, timedelta
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 from urllib.parse import quote
+
+import resend
 
 logger = logging.getLogger(__name__)
 
-GMAIL_USER     = os.getenv("GMAIL_USER")
-GMAIL_PASSWORD = os.getenv("GMAIL_APP_PASSWORD")
-SMTP_HOST      = "smtp.gmail.com"
-SMTP_PORT      = 587
+RESEND_API_KEY = os.getenv("RESEND_API_KEY")
+FROM_EMAIL     = os.getenv("RESEND_FROM", "Elysium Fisio-Pilates <onboarding@resend.dev>")
 
-if not GMAIL_USER or not GMAIL_PASSWORD:
+if not RESEND_API_KEY:
     logger.warning(
-        "⚠️  GMAIL_USER o GMAIL_APP_PASSWORD no configuradas — "
+        "⚠️  RESEND_API_KEY no configurada — "
         "los correos se registrarán en el log pero NO se enviarán."
     )
+else:
+    resend.api_key = RESEND_API_KEY
 
 PORTAL_URL      = os.getenv("PORTAL_URL", "http://localhost:3000/portal")
 CLINIC_MAPS_URL = os.getenv("CLINIC_MAPS_URL", "https://maps.google.com")
@@ -334,31 +333,23 @@ def _build_recordatorio_html(nombre: str, cita, plan) -> str:
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def _send(to_email: str, subject: str, html: str) -> None:
-    if not GMAIL_USER or not GMAIL_PASSWORD:
+    if not RESEND_API_KEY:
         logger.warning(
-            "📧 [EMAIL - modo log | credenciales no configuradas]\n  Para: %s\n  Asunto: %s",
+            "📧 [EMAIL - modo log | RESEND_API_KEY no configurada]\n  Para: %s\n  Asunto: %s",
             to_email, subject,
         )
         return
 
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"]    = f"Elysium Fisio-Pilates <{GMAIL_USER}>"
-    msg["To"]      = to_email
-    msg.attach(MIMEText(html, "html", "utf-8"))
-
     try:
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15) as server:
-            server.ehlo()
-            server.starttls()
-            server.login(GMAIL_USER, GMAIL_PASSWORD)
-            server.sendmail(GMAIL_USER, to_email, msg.as_string())
+        resend.Emails.send({
+            "from": FROM_EMAIL,
+            "to": [to_email],
+            "subject": subject,
+            "html": html,
+        })
         logger.info("📧 Email enviado a %s — %s", to_email, subject)
-    except smtplib.SMTPAuthenticationError:
-        logger.error("📧 Error SMTP: credenciales inválidas (GMAIL_USER=%s). Verifica GMAIL_APP_PASSWORD.", GMAIL_USER)
-        raise
     except Exception as exc:
-        logger.error("📧 Error SMTP enviando a %s: %s", to_email, exc)
+        logger.error("📧 Error Resend enviando a %s: %s", to_email, exc)
         raise
 
 

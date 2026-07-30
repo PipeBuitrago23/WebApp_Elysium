@@ -72,7 +72,7 @@ Admin and test patient are auto-seeded by `_seed_admin()` and `_seed_paciente()`
 | Database | PostgreSQL 15 |
 | Infrastructure | Docker + Docker Compose (local) · Railway (production) |
 | Rate limiting | slowapi (5/min login · 10/min portal public endpoints) |
-| Email | Gmail SMTP via smtplib — env vars `GMAIL_USER` / `GMAIL_APP_PASSWORD` |
+| Email | Resend API (HTTP) — env var `RESEND_API_KEY`; optional `RESEND_FROM` (default `onboarding@resend.dev`) |
 | Future | n8n webhooks → WhatsApp API (Meta) for reminders |
 
 ## Running the Project
@@ -141,9 +141,9 @@ routes/
   medico_portal.py   # require_medico: GET /medico/citas (own referrals only) · POST /medico/citas
                      #   (find-or-create Paciente by cédula + create Cita with medico_id/motivo_remision, no plan check)
 services/
-  email.py           # send_confirmacion · send_recordatorio via Gmail SMTP
-                     #   reads GMAIL_USER + GMAIL_APP_PASSWORD at import time
-                     #   logs WARNING (not sent) when credentials are missing
+  email.py           # send_confirmacion · send_recordatorio via Resend API (HTTP, no SMTP)
+                     #   reads RESEND_API_KEY at import time; RESEND_FROM optional
+                     #   logs WARNING (not sent) when API key is missing
 ```
 
 > **bcrypt note:** `passlib[bcrypt]` is installed but NOT used — passlib 1.7.4 is incompatible with bcrypt 4.x (raises ValueError on startup). All password hashing uses `import bcrypt` directly.
