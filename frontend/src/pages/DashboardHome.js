@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { BarChart2, Calendar, CalendarDays, Clock, UserX, Users } from 'lucide-react';
+import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
 import { getCitas } from '../api/citas';
 import { getPacientes } from '../api/pacientes';
 import { getPagos } from '../api/pagos';
+import { getVentas } from '../api/ventas';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -148,6 +150,7 @@ export default function DashboardHome() {
   const [pacientesMap, setPacientesMap] = useState({});
   const [totalPacientes, setTotalPac]   = useState(0);
   const [pagos, setPagos]               = useState([]);
+  const [ventasMes, setVentasMes]       = useState([]);
   const [loading, setLoading]           = useState(true);
   const [error, setError]               = useState('');
 
@@ -167,8 +170,9 @@ export default function DashboardHome() {
       getCitas({ fecha_desde: hace10 }),
       getPacientes(),
       getPagos(),
+      getVentas({ fecha_desde: primer, fecha_hasta: ultimo }),
     ])
-      .then(([ch, cs, cm, cr, ps, pg]) => {
+      .then(([ch, cs, cm, cr, ps, pg, vm]) => {
         setCitasHoy(ch.sort((a, b) => a.hora.localeCompare(b.hora)));
         setCitasSemana(cs);
         setCitasMes(cm);
@@ -178,6 +182,7 @@ export default function DashboardHome() {
         setPacientesMap(map);
         setTotalPac(ps.length);
         setPagos(pg);
+        setVentasMes(vm);
       })
       .catch(() => setError('Error al cargar los datos del dashboard.'))
       .finally(() => setLoading(false));
@@ -226,6 +231,27 @@ export default function DashboardHome() {
       .sort((a, b) => a.fecha.localeCompare(b.fecha) || a.hora.localeCompare(b.hora)),
     [citasSemana],
   );
+
+  const PIE_COLORS = {
+    Pilates:           '#3f3f46',
+    Fisioterapia:      '#71717a',
+    Combos:            '#a1a1aa',
+    'Prendas de Vestir': '#d4d4d8',
+  };
+
+  const ventasPorCategoria = useMemo(() => {
+    const totals = {};
+    ventasMes.forEach((v) => {
+      totals[v.categoria] = (totals[v.categoria] || 0) + v.valor_total;
+    });
+    return Object.entries(totals).map(([name, value]) => ({ name, value }));
+  }, [ventasMes]);
+
+  const ingresosMes = ventasMes.reduce((acc, v) => acc + v.abono, 0);
+
+  function fmtCOP(v) {
+    return `$${Number(v).toLocaleString('es-CO')}`;
+  }
 
   return (
     <div>
@@ -371,6 +397,63 @@ export default function DashboardHome() {
               ))}
             </div>
           </>
+        )}
+      </div>
+
+      {/* Ingresos del mes — pie chart */}
+      <div className="bg-white rounded-xl border border-slate-200 mb-4">
+        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-700">Ingresos por categoría — {fmtMes()}</h3>
+            <p className="text-xs text-slate-400 mt-0.5">
+              {loading ? '…' : `${fmtCOP(ingresosMes)} en abonos recibidos · ${ventasMes.length} venta${ventasMes.length !== 1 ? 's' : ''}`}
+            </p>
+          </div>
+        </div>
+        {loading ? (
+          <div className="px-6 py-10 text-center text-slate-400 text-sm">Cargando…</div>
+        ) : ventasPorCategoria.length === 0 ? (
+          <div className="px-6 py-10 text-center text-slate-400 text-sm">
+            Sin ventas registradas este mes.
+          </div>
+        ) : (
+          <div className="flex flex-col md:flex-row items-center gap-6 px-6 py-4">
+            <ResponsiveContainer width="100%" height={200} className="md:max-w-[220px] shrink-0">
+              <PieChart>
+                <Pie
+                  data={ventasPorCategoria}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={55}
+                  outerRadius={90}
+                  paddingAngle={3}
+                  dataKey="value"
+                >
+                  {ventasPorCategoria.map((entry) => (
+                    <Cell key={entry.name} fill={PIE_COLORS[entry.name] || '#e4e4e7'} />
+                  ))}
+                </Pie>
+                <Tooltip
+                  formatter={(value) => [fmtCOP(value), 'Total vendido']}
+                  contentStyle={{ borderRadius: '8px', fontSize: '12px', border: '1px solid #e2e8f0' }}
+                />
+              </PieChart>
+            </ResponsiveContainer>
+            <div className="flex flex-col gap-2 w-full">
+              {ventasPorCategoria.map((entry) => (
+                <div key={entry.name} className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="w-3 h-3 rounded-full shrink-0"
+                      style={{ backgroundColor: PIE_COLORS[entry.name] || '#e4e4e7' }}
+                    />
+                    <span className="text-sm text-slate-600">{entry.name}</span>
+                  </div>
+                  <span className="text-sm font-mono font-semibold text-slate-700">{fmtCOP(entry.value)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
         )}
       </div>
 

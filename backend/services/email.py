@@ -353,6 +353,107 @@ def _send(to_email: str, subject: str, html: str) -> None:
         raise
 
 
+def _build_pago_html(nombre: str, venta) -> str:
+    _MONTHS = ["enero","febrero","marzo","abril","mayo","junio",
+               "julio","agosto","septiembre","octubre","noviembre","diciembre"]
+    _DAYS   = ["lunes","martes","miércoles","jueves","viernes","sábado","domingo"]
+    fecha_fmt = f"{_DAYS[venta.fecha.weekday()]} {venta.fecha.day} de {_MONTHS[venta.fecha.month-1]} de {venta.fecha.year}"
+
+    def cop(v):
+        return f"${v:,.0f}".replace(",", ".")
+
+    sesiones_row = ""
+    if venta.total_sesiones:
+        sesiones_row = f"""
+          <tr>
+            <td style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.15);">
+              <span style="color:#d4d4d8;font-size:11px;display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:1px;">Sesiones incluidas</span>
+              <span style="color:#ffffff;font-size:18px;font-weight:700;">{venta.total_sesiones}</span>
+            </td>
+          </tr>"""
+
+    saldo_color = "#ef4444" if venta.saldo > 0 else "#22c55e"
+    saldo_label = "Saldo pendiente" if venta.saldo > 0 else "Saldo"
+    estado_badge = (
+        '<span style="background:#fef2f2;color:#991b1b;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:700;">⚠️ Pendiente de pago</span>'
+        if venta.saldo > 0 else
+        '<span style="background:#f0fdf4;color:#166534;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:700;">✅ Pagado en su totalidad</span>'
+    )
+
+    content = f"""
+      <p style="color:#64748b;font-size:15px;margin:0 0 6px;">
+        Hola, <strong style="color:#0f172a;">{nombre}</strong> 👋
+      </p>
+      <h2 style="color:#0f172a;font-size:22px;font-weight:800;margin:0 0 8px;line-height:1.3;">
+        Confirmación de pago
+      </h2>
+      <p style="color:#64748b;font-size:15px;margin:0 0 32px;">
+        Hemos registrado tu pago en Elysium Fisio-Pilates. Aquí tienes el resumen.
+      </p>
+
+      <div style="background:linear-gradient(135deg,#27272a 0%,#3f3f46 100%);border-radius:16px;padding:28px;margin-bottom:28px;">
+        <p style="color:#d4d4d8;font-size:11px;text-transform:uppercase;letter-spacing:2px;font-weight:700;margin:0 0 20px;">
+          Detalle del pago
+        </p>
+        <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
+          <tr>
+            <td style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.15);">
+              <span style="color:#d4d4d8;font-size:11px;display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:1px;">Paquete</span>
+              <span style="color:#ffffff;font-size:18px;font-weight:700;">{venta.nombre_paquete}</span>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.15);">
+              <span style="color:#d4d4d8;font-size:11px;display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:1px;">Fecha</span>
+              <span style="color:#ffffff;font-size:16px;font-weight:600;">{fecha_fmt}</span>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.15);">
+              <span style="color:#d4d4d8;font-size:11px;display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:1px;">Valor total</span>
+              <span style="color:#ffffff;font-size:18px;font-weight:700;">{cop(venta.valor_total)}</span>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.15);">
+              <span style="color:#d4d4d8;font-size:11px;display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:1px;">Abono recibido</span>
+              <span style="color:#4ade80;font-size:18px;font-weight:700;">{cop(venta.abono)}</span>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.15);">
+              <span style="color:#d4d4d8;font-size:11px;display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:1px;">{saldo_label}</span>
+              <span style="color:{saldo_color};font-size:18px;font-weight:700;">{cop(venta.saldo)}</span>
+            </td>
+          </tr>
+          {sesiones_row}
+        </table>
+      </div>
+
+      <div style="text-align:center;margin-bottom:28px;">
+        {estado_badge}
+      </div>
+
+      {"" if venta.saldo == 0 else f'''<div style="background:#fff7ed;border-radius:12px;padding:16px 20px;margin-bottom:28px;border:1px solid #fed7aa;"><p style="color:#92400e;font-size:13px;margin:0;line-height:1.7;">⚠️ <strong>Recuerda:</strong> Tienes un saldo pendiente de <strong>{cop(venta.saldo)}</strong>. Por favor comunícate con Elysium para completar tu pago.</p></div>'''}
+
+      <div style="text-align:center;">
+        <a href="{PORTAL_URL}"
+           style="display:inline-block;background-color:#27272a;border-radius:12px;padding:16px 40px;font-size:15px;font-weight:700;color:#ffffff;text-decoration:none;letter-spacing:0.3px;">
+          Ver mi portal
+        </a>
+      </div>"""
+
+    return _base_template("Confirmación de pago – Elysium", content)
+
+
+def send_confirmacion_pago(nombre: str, email: str, venta) -> None:
+    try:
+        html = _build_pago_html(nombre, venta)
+        _send(email, f"✅ Confirmación de pago – {venta.nombre_paquete}", html)
+    except Exception:
+        logger.exception("Error enviando confirmación de pago a %s", email)
+
+
 def send_confirmacion(nombre: str, email: str, cita, plan=None) -> None:
     try:
         html = _build_confirmacion_html(nombre, cita, plan)

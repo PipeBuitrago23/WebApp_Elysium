@@ -12,6 +12,8 @@ import AgendaPage from './pages/AgendaPage';
 import PortalPage from './pages/PortalPage';
 import MedicoPortalPage from './pages/MedicoPortalPage';
 import MedicosPage from './pages/MedicosPage';
+import VentasPage from './pages/VentasPage';
+import GastosPage from './pages/GastosPage';
 
 
 // ── Privacy policy content (shared between both modal layers) ─────────────────
@@ -217,6 +219,8 @@ function App() {
             <Route path="pacientes"  element={<PacientesPage />} />
             <Route path="nueva-cita" element={<NuevaCitaPage />} />
             <Route path="medicos"    element={<MedicosPage />} />
+            <Route path="ventas"     element={<VentasPage />} />
+            <Route path="gastos"     element={<GastosPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>

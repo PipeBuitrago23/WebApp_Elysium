@@ -16,6 +16,8 @@ from models.paciente import Paciente  # noqa: F401
 from models.usuario import Usuario
 from models.cita import Cita          # noqa: F401 — needed so create_all picks up the table
 from models.pago import Pago          # noqa: F401
+from models.venta import Venta        # noqa: F401
+from models.gasto import Gasto        # noqa: F401
 from routes import auth as auth_router
 from routes import pacientes
 from routes import citas
@@ -23,6 +25,8 @@ from routes import pagos
 from routes import portal
 from routes import medicos
 from routes import medico_portal
+from routes import ventas
+from routes import gastos
 from routes.citas import procesar_citas_vencidas
 from services.email import send_recordatorio
 
@@ -218,6 +222,8 @@ app.include_router(pagos.router, prefix="/pagos", tags=["pagos"])
 app.include_router(portal.router, prefix="/portal", tags=["portal"])
 app.include_router(medicos.router, prefix="/medicos", tags=["medicos"])
 app.include_router(medico_portal.router, prefix="/medico", tags=["medico-portal"])
+app.include_router(ventas.router, prefix="/ventas", tags=["ventas"])
+app.include_router(gastos.router, prefix="/gastos", tags=["gastos"])
 
 
 @app.get("/health")

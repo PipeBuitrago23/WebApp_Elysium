@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { CalendarDays, KeyRound, LayoutDashboard, LogOut, PlusCircle, Stethoscope, Users, X } from 'lucide-react';
+import { CalendarDays, KeyRound, LayoutDashboard, LogOut, PlusCircle, Receipt, Stethoscope, TrendingDown, Users, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import CambiarPasswordModal from './CambiarPasswordModal';
 
@@ -10,6 +10,8 @@ const navItems = [
   { to: '/pacientes', label: 'Pacientes',    Icon: Users           },
   { to: '/nueva-cita',label: 'Nueva Cita',   Icon: PlusCircle      },
   { to: '/medicos',   label: 'Médicos',      Icon: Stethoscope     },
+  { to: '/ventas',    label: 'Ventas',       Icon: Receipt         },
+  { to: '/gastos',    label: 'Gastos',       Icon: TrendingDown    },
 ];
 
 export default function Sidebar({ isOpen, onClose }) {

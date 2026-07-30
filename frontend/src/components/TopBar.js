@@ -7,6 +7,8 @@ const titles = {
   '/pacientes':  'Pacientes',
   '/nueva-cita': 'Nueva Cita',
   '/medicos':    'Médicos en Convenio',
+  '/ventas':     'Ventas',
+  '/gastos':     'Gastos',
 };
 
 export default function TopBar({ onMenuClick }) {
