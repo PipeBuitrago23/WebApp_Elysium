@@ -58,22 +58,22 @@ def _descuenta_sesion(db: Session, paciente_id: str, required: bool = True) -> N
 def procesar_citas_vencidas(db: Session) -> int:
     """Auto-mark past unresolved appointments as no-show and deduct sessions.
 
+    Only processes appointments from PREVIOUS days — today's past slots are left
+    for the admin to resolve manually during the business day.
     Called by the background job every few minutes. Returns number of citas processed.
-    Unlike _descuenta_sesion, does not raise if there is no active plan — just skips deduction.
     Uses a PostgreSQL advisory lock so multiple replicas don't double-penalize.
     """
     acquired = db.execute(text("SELECT pg_try_advisory_xact_lock(20001)")).scalar()
     if not acquired:
         return 0
 
-    hoy   = date.today()
-    ahora = datetime.now().time()
+    hoy = date.today()
 
     vencidas = (
         db.query(Cita)
         .filter(
             Cita.estado.in_(["programada", "confirmada"]),
-            (Cita.fecha < hoy) | ((Cita.fecha == hoy) & (Cita.hora < ahora)),
+            Cita.fecha < hoy,
         )
         .all()
     )
@@ -132,6 +132,19 @@ class EstadoUpdate(BaseModel):
     def estado_valido(cls, v: str) -> str:
         if v not in ESTADOS_VALIDOS:
             raise ValueError("Estado inválido.")
+        return v
+
+
+class AjusteAdminBody(BaseModel):
+    accion: str  # "cancelar" | "reprogramar"
+    fecha: date | None = None
+    hora: time | None = None
+
+    @field_validator("accion")
+    @classmethod
+    def accion_valida(cls, v: str) -> str:
+        if v not in ("cancelar", "reprogramar"):
+            raise ValueError("Acción inválida. Use 'cancelar' o 'reprogramar'.")
         return v
 
 
@@ -304,6 +317,67 @@ def patch_estado(
         _descuenta_sesion(db, cita.paciente_id, required=cita.medico_id is None)
 
     cita.estado = nuevo
+    db.commit()
+    db.refresh(cita)
+    return _citas_out(db, [cita])[0]
+
+
+@router.patch("/{cita_id}/ajuste-admin", response_model=CitaOut)
+def ajuste_admin(
+    cita_id: str,
+    data: AjusteAdminBody,
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_admin),
+):
+    """Cancel or reschedule without touching session count and without the 2-hour rule.
+    Only available from the admin panel for exceptional cases.
+    """
+    cita = db.get(Cita, cita_id)
+    if not cita:
+        raise HTTPException(status_code=404, detail="Cita no encontrada")
+    if cita.estado in ESTADOS_TERMINAL:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Esta cita está en estado '{cita.estado}' y no puede ajustarse.",
+        )
+
+    if data.accion == "cancelar":
+        cita.estado = "cancelada"
+    else:
+        if not data.fecha or not data.hora:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Se requiere fecha y hora para reprogramar.",
+            )
+        if data.hora.minute not in (0, 30) or data.hora.second != 0:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="La hora debe ser :00 o :30.",
+            )
+        if not (HORA_MIN <= data.hora <= HORA_MAX):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Horario fuera de ventana permitida (07:00–18:30).",
+            )
+        ocupados = (
+            db.query(Cita)
+            .filter(
+                Cita.fecha == data.fecha,
+                Cita.hora == data.hora,
+                Cita.tipo == cita.tipo,
+                Cita.estado.notin_(["cancelada"]),
+                Cita.id != cita_id,
+            )
+            .count()
+        )
+        if ocupados >= CAPACIDAD[cita.tipo]:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Ese horario ya está lleno para {cita.tipo}.",
+            )
+        cita.fecha = data.fecha
+        cita.hora = data.hora
+
     db.commit()
     db.refresh(cita)
     return _citas_out(db, [cita])[0]

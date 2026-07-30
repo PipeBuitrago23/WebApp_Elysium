@@ -56,3 +56,12 @@ export async function patchCitaEstado(id, estado) {
   );
   return data;
 }
+
+export async function ajusteAdminCita(id, body) {
+  const { data } = await axios.patch(
+    `${API_URL}/citas/${id}/ajuste-admin`,
+    body,
+    { headers: authHeaders() },
+  );
+  return data;
+}

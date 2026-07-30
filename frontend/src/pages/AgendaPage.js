@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
-import { getCitas, patchCitaEstado } from '../api/citas';
+import { getCitas, patchCitaEstado, ajusteAdminCita } from '../api/citas';
 import { getPacientes } from '../api/pacientes';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -109,6 +109,11 @@ function EstadoModal({ cita, pacientesMap, onClose, onUpdate }) {
   const [saving, setSaving]               = useState(false);
   const [error, setError]                 = useState('');
   const [notice, setNotice]               = useState('');
+  const [ajusteMode, setAjusteMode]       = useState(null);  // null | 'reprogramar'
+  const [ajusteFecha, setAjusteFecha]     = useState('');
+  const [ajusteHora, setAjusteHora]       = useState('');
+  const [ajusteSaving, setAjusteSaving]   = useState(false);
+  const [ajusteError, setAjusteError]     = useState('');
 
   const isTerminal = ESTADOS_TERMINAL.has(currentEstado);
 
@@ -132,9 +137,42 @@ function EstadoModal({ cita, pacientesMap, onClose, onUpdate }) {
     }
   }
 
+  async function cancelarSinDescuento() {
+    setAjusteSaving(true);
+    setAjusteError('');
+    try {
+      const updated = await ajusteAdminCita(cita.id, { accion: 'cancelar' });
+      setCurrentEstado(updated.estado);
+      onUpdate();
+    } catch (err) {
+      setAjusteError(err.response?.data?.detail || 'Error al cancelar.');
+    } finally {
+      setAjusteSaving(false);
+    }
+  }
+
+  async function reprogramarSinDescuento() {
+    setAjusteSaving(true);
+    setAjusteError('');
+    try {
+      const updated = await ajusteAdminCita(cita.id, {
+        accion: 'reprogramar',
+        fecha: ajusteFecha,
+        hora: ajusteHora + ':00',
+      });
+      setCurrentEstado(updated.estado);
+      setAjusteMode(null);
+      onUpdate();
+    } catch (err) {
+      setAjusteError(err.response?.data?.detail || 'Error al reprogramar.');
+    } finally {
+      setAjusteSaving(false);
+    }
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-y-auto max-h-[90vh]">
         {/* Header */}
         <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-slate-100">
           <h2 className="text-base font-semibold text-slate-800">Gestionar cita</h2>
@@ -183,13 +221,14 @@ function EstadoModal({ cita, pacientesMap, onClose, onUpdate }) {
             </p>
           ) : (
             <>
+              {/* Standard attendance / status actions */}
               <p className="text-xs text-slate-400 mb-2">Cambiar a</p>
               <div className="flex flex-col gap-2">
                 {ACCIONES.filter((a) => a.show(currentEstado)).map((a) => (
                   <button
                     key={a.estado}
                     onClick={() => cambiar(a.estado)}
-                    disabled={saving}
+                    disabled={saving || ajusteSaving}
                     className={`w-full py-2 px-4 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 ${a.className}`}
                   >
                     {a.label}
@@ -200,6 +239,73 @@ function EstadoModal({ cita, pacientesMap, onClose, onUpdate }) {
                 "Completada" y "No asistió" descuentan 1 sesión del plan activo.
                 Cancelar dentro de 2 h aplica penalización automáticamente.
               </p>
+
+              {/* Admin overrides — no session deduction, no time restrictions */}
+              <div className="mt-4 pt-4 border-t border-slate-100">
+                <p className="text-xs text-slate-400 mb-2 font-medium">Ajuste de admin (sin afectar sesiones)</p>
+                {ajusteMode !== 'reprogramar' ? (
+                  <div className="flex flex-col gap-2">
+                    <button
+                      onClick={cancelarSinDescuento}
+                      disabled={saving || ajusteSaving}
+                      className="w-full py-2 px-4 rounded-lg text-sm font-medium border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-50"
+                    >
+                      {ajusteSaving ? 'Cancelando…' : 'Cancelar (sin descontar sesión)'}
+                    </button>
+                    <button
+                      onClick={() => { setAjusteMode('reprogramar'); setAjusteError(''); }}
+                      disabled={saving || ajusteSaving}
+                      className="w-full py-2 px-4 rounded-lg text-sm font-medium border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-50"
+                    >
+                      Cambiar horario
+                    </button>
+                    {ajusteError && (
+                      <div className="p-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700">
+                        {ajusteError}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    <input
+                      type="date"
+                      value={ajusteFecha}
+                      onChange={(e) => setAjusteFecha(e.target.value)}
+                      className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-zinc-300"
+                    />
+                    <select
+                      value={ajusteHora}
+                      onChange={(e) => setAjusteHora(e.target.value)}
+                      className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-zinc-300"
+                    >
+                      <option value="">Seleccionar hora</option>
+                      {SLOTS.map((s) => (
+                        <option key={s} value={s}>{s}</option>
+                      ))}
+                    </select>
+                    {ajusteError && (
+                      <div className="p-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700">
+                        {ajusteError}
+                      </div>
+                    )}
+                    <div className="flex gap-2">
+                      <button
+                        onClick={reprogramarSinDescuento}
+                        disabled={ajusteSaving || !ajusteFecha || !ajusteHora}
+                        className="flex-1 py-2 px-4 rounded-lg text-sm font-medium bg-zinc-800 text-white hover:bg-zinc-900 transition-colors disabled:opacity-50"
+                      >
+                        {ajusteSaving ? 'Guardando…' : 'Guardar'}
+                      </button>
+                      <button
+                        onClick={() => { setAjusteMode(null); setAjusteError(''); }}
+                        className="flex-1 py-2 px-4 rounded-lg text-sm font-medium border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
+                      >
+                        Atrás
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
             </>
           )}
 
