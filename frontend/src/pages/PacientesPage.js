@@ -368,7 +368,7 @@ export default function PacientesPage() {
                 <Field label="Email" name="email" type="email" value={modal.form.email} onChange={handleFormChange} />
               </div>
               <Field label="Fecha de nacimiento" name="fecha_nacimiento" type="date" value={modal.form.fecha_nacimiento} onChange={handleFormChange} />
-              <TextareaField label="Antecedentes médicos" name="antecedentes" value={modal.form.antecedentes} onChange={handleFormChange} />
+              <TextareaField label="Antecedentes relevantes" name="antecedentes" value={modal.form.antecedentes} onChange={handleFormChange} />
               <TextareaField label="Cirugías / procedimientos" name="cirugias" value={modal.form.cirugias} onChange={handleFormChange} />
 
               {/* ── Plan section ── */}

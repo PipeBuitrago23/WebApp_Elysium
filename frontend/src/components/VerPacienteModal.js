@@ -64,7 +64,7 @@ export default function VerPacienteModal({ paciente, onClose, onEdit }) {
         setCitas([...c].sort((a, b) => (b.fecha + b.hora).localeCompare(a.fecha + a.hora)));
         setPagos(p);
       })
-      .catch(() => setError('Error al cargar el historial del paciente.'))
+      .catch(() => setError('Error al cargar la información del paciente.'))
       .finally(() => setLoading(false));
   }, [paciente.Paciente]);
 
@@ -102,7 +102,7 @@ export default function VerPacienteModal({ paciente, onClose, onEdit }) {
               <InfoField label="Fecha de nacimiento" value={fmtDate(paciente.fecha_nacimiento)} />
             </div>
             <div className="space-y-3">
-              <InfoField label="Antecedentes médicos" value={paciente.antecedentes} />
+              <InfoField label="Antecedentes relevantes" value={paciente.antecedentes} />
               <InfoField label="Cirugías / procedimientos" value={paciente.cirugias} />
             </div>
           </div>
@@ -111,10 +111,10 @@ export default function VerPacienteModal({ paciente, onClose, onEdit }) {
             <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-3">{error}</p>
           )}
 
-          {/* Historial de planes */}
+          {/* Registro de planes */}
           <div>
             <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">
-              Historial de planes {!loading && `(${pagos.length})`}
+              Registro de planes {!loading && `(${pagos.length})`}
             </p>
             {loading ? (
               <p className="text-sm text-slate-400">Cargando…</p>
@@ -140,10 +140,10 @@ export default function VerPacienteModal({ paciente, onClose, onEdit }) {
             )}
           </div>
 
-          {/* Historial de citas */}
+          {/* Registro de citas */}
           <div>
             <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">
-              Historial de citas {!loading && `(${citas.length})`}
+              Registro de citas {!loading && `(${citas.length})`}
             </p>
             {loading ? (
               <p className="text-sm text-slate-400">Cargando…</p>

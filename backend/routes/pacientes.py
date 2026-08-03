@@ -126,7 +126,7 @@ def delete_paciente(
     if tiene_historial and not force:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Este paciente tiene citas o pagos registrados y no puede eliminarse — se conserva su historial clínico.",
+            detail="Este paciente tiene citas o pagos registrados y no puede eliminarse — se conserva su historial de atención.",
         )
 
     if force:
