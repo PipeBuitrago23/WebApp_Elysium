@@ -6,11 +6,15 @@ import { getMedicos } from '../api/medicos';
 
 const TIPOS = ['Fisioterapia', 'Pilates', 'Sesión de cortesía'];
 
-// Valid slots: 07:00 to 18:30 every 30 min (matches backend validation)
+// Mañana 07:00–11:00, tarde 14:00–18:00 (matches backend validation)
 const VALID_SLOTS = [];
-for (let h = 7; h <= 18; h++) {
+for (let h = 7; h <= 11; h++) {
   VALID_SLOTS.push(`${String(h).padStart(2, '0')}:00`);
-  VALID_SLOTS.push(`${String(h).padStart(2, '0')}:30`);
+  if (h < 11) VALID_SLOTS.push(`${String(h).padStart(2, '0')}:30`);
+}
+for (let h = 14; h <= 18; h++) {
+  VALID_SLOTS.push(`${String(h).padStart(2, '0')}:00`);
+  if (h < 18) VALID_SLOTS.push(`${String(h).padStart(2, '0')}:30`);
 }
 
 const today = () => new Date().toISOString().split('T')[0];

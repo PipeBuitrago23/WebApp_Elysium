@@ -9,9 +9,13 @@ import { getMisCitas, crearCitaMedico } from '../api/medicoPortal';
 const TIPOS = ['Fisioterapia', 'Pilates'];
 
 const VALID_SLOTS = [];
-for (let h = 7; h <= 18; h++) {
+for (let h = 7; h <= 11; h++) {
   VALID_SLOTS.push(`${String(h).padStart(2, '0')}:00`);
-  VALID_SLOTS.push(`${String(h).padStart(2, '0')}:30`);
+  if (h < 11) VALID_SLOTS.push(`${String(h).padStart(2, '0')}:30`);
+}
+for (let h = 14; h <= 18; h++) {
+  VALID_SLOTS.push(`${String(h).padStart(2, '0')}:00`);
+  if (h < 18) VALID_SLOTS.push(`${String(h).padStart(2, '0')}:30`);
 }
 
 const ESTADO_STYLE = {

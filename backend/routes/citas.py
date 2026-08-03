@@ -14,8 +14,7 @@ from services.email import send_confirmacion
 
 TIPOS_VALIDOS       = {"Fisioterapia", "Pilates", "Sesión de cortesía"}
 CAPACIDAD           = {"Fisioterapia": 2, "Pilates": 6, "Sesión de cortesía": 6}
-HORA_MIN            = time(7, 0)
-HORA_MAX            = time(18, 30)
+TURNOS              = ((time(7, 0), time(11, 0)), (time(14, 0), time(18, 0)))
 ESTADOS_VALIDOS     = {"programada", "confirmada", "completada", "cancelada", "No asistió con penalización"}
 ESTADOS_TERMINAL    = {"completada", "cancelada", "No asistió con penalización"}
 ESTADOS_CON_DESCUENTO = {"completada", "No asistió con penalización"}
@@ -105,8 +104,8 @@ class CitaCreate(BaseModel):
     def hora_valida(cls, v: time) -> time:
         if v.minute not in (0, 30) or v.second != 0:
             raise ValueError("La hora debe ser en punto (:00) o y media (:30)")
-        if not (HORA_MIN <= v <= HORA_MAX):
-            raise ValueError("Horario fuera de ventana permitida (07:00–18:30)")
+        if not any(ini <= v <= fin for ini, fin in TURNOS):
+            raise ValueError("Horario fuera de ventana permitida (07:00–11:00 · 14:00–18:00)")
         return v
 
     @field_validator("tipo")
@@ -354,10 +353,10 @@ def ajuste_admin(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="La hora debe ser :00 o :30.",
             )
-        if not (HORA_MIN <= data.hora <= HORA_MAX):
+        if not any(ini <= data.hora <= fin for ini, fin in TURNOS):
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Horario fuera de ventana permitida (07:00–18:30).",
+                detail="Horario fuera de ventana permitida (07:00–11:00 · 14:00–18:00).",
             )
         ocupados = (
             db.query(Cita)

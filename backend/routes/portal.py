@@ -13,8 +13,7 @@ from services.email import send_confirmacion
 
 TIPOS_VALIDOS     = {"Fisioterapia", "Pilates", "Sesión de cortesía"}
 CAPACIDAD         = {"Fisioterapia": 2, "Pilates": 6, "Sesión de cortesía": 6}
-HORA_MIN          = time(7, 0)
-HORA_MAX          = time(18, 30)
+TURNOS            = ((time(7, 0), time(11, 0)), (time(14, 0), time(18, 0)))
 ESTADOS_TERMINAL  = {"completada", "cancelada", "No asistió con penalización"}
 HORAS_CANCELACION = 2
 
@@ -58,8 +57,8 @@ class CitaPortalCreate(BaseModel):
     def hora_valida(cls, v: time) -> time:
         if v.minute not in (0, 30) or v.second != 0:
             raise ValueError("La hora debe ser :00 o :30")
-        if not (HORA_MIN <= v <= HORA_MAX):
-            raise ValueError("Horario fuera de ventana permitida (07:00–18:30)")
+        if not any(ini <= v <= fin for ini, fin in TURNOS):
+            raise ValueError("Horario fuera de ventana permitida (07:00–11:00 · 14:00–18:00)")
         return v
 
     @field_validator("tipo")
@@ -82,8 +81,8 @@ class CitaRecurrenteCreate(BaseModel):
     def hora_valida(cls, v: time) -> time:
         if v.minute not in (0, 30) or v.second != 0:
             raise ValueError("La hora debe ser :00 o :30")
-        if not (HORA_MIN <= v <= HORA_MAX):
-            raise ValueError("Horario fuera de ventana permitida (07:00–18:30)")
+        if not any(ini <= v <= fin for ini, fin in TURNOS):
+            raise ValueError("Horario fuera de ventana permitida (07:00–11:00 · 14:00–18:00)")
         return v
 
     @field_validator("tipo")
@@ -149,8 +148,8 @@ class ReprogramarCitaBody(BaseModel):
     def hora_valida(cls, v: time) -> time:
         if v.minute not in (0, 30) or v.second != 0:
             raise ValueError("La hora debe ser :00 o :30")
-        if not (HORA_MIN <= v <= HORA_MAX):
-            raise ValueError("Horario fuera de ventana permitida (07:00–18:30)")
+        if not any(ini <= v <= fin for ini, fin in TURNOS):
+            raise ValueError("Horario fuera de ventana permitida (07:00–11:00 · 14:00–18:00)")
         return v
 
 

@@ -50,7 +50,7 @@ Admin and test patient are auto-seeded by `_seed_admin()` and `_seed_paciente()`
 
 4. **Strict Time-Slot & Capacity Constraints:**
 
-   **Allowed schedule window:** Appointments can only be scheduled between **7:00 AM and 6:30 PM** (last valid slot starts at 18:30). Any time outside this window must be rejected.
+   **Allowed schedule window:** Two fixed blocks — **morning 7:00–11:00** (last slot 11:00) and **afternoon 14:00–18:00** (last slot 18:00). The midday gap 11:30–13:30 is blocked. Any time outside these windows must be rejected. Backend uses `TURNOS = ((time(7,0), time(11,0)), (time(14,0), time(18,0)))` in all three route files.
 
    **Fixed 30-minute intervals:** Booking times must strictly fall on `:00` or `:30` of any hour. Valid examples: `7:00`, `7:30`, `8:00`, `8:30`. Times like `8:45` or `9:20` are invalid and must be blocked by backend validation — not just frontend.
 

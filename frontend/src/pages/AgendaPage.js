@@ -6,9 +6,13 @@ import { getPacientes } from '../api/pacientes';
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const SLOTS = [];
-for (let h = 7; h <= 18; h++) {
+for (let h = 7; h <= 11; h++) {
   SLOTS.push(`${String(h).padStart(2, '0')}:00`);
-  SLOTS.push(`${String(h).padStart(2, '0')}:30`);
+  if (h < 11) SLOTS.push(`${String(h).padStart(2, '0')}:30`);
+}
+for (let h = 14; h <= 18; h++) {
+  SLOTS.push(`${String(h).padStart(2, '0')}:00`);
+  if (h < 18) SLOTS.push(`${String(h).padStart(2, '0')}:30`);
 }
 
 const CAP = { Fisioterapia: 2, Pilates: 6, 'Sesión de cortesía': 6 };

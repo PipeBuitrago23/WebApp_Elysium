@@ -11,8 +11,7 @@ from services.email import send_confirmacion
 
 TIPOS_VALIDOS = {"Fisioterapia", "Pilates"}
 CAPACIDAD     = {"Fisioterapia": 2, "Pilates": 6}
-HORA_MIN      = time(7, 0)
-HORA_MAX      = time(18, 30)
+TURNOS        = ((time(7, 0), time(11, 0)), (time(14, 0), time(18, 0)))
 
 router = APIRouter()
 
@@ -42,8 +41,8 @@ class MedicoCitaCreate(BaseModel):
     def hora_valida(cls, v: time) -> time:
         if v.minute not in (0, 30) or v.second != 0:
             raise ValueError("La hora debe ser en punto (:00) o y media (:30)")
-        if not (HORA_MIN <= v <= HORA_MAX):
-            raise ValueError("Horario fuera de ventana permitida (07:00–18:30)")
+        if not any(ini <= v <= fin for ini, fin in TURNOS):
+            raise ValueError("Horario fuera de ventana permitida (07:00–11:00 · 14:00–18:00)")
         return v
 
     @field_validator("tipo")

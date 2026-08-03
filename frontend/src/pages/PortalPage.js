@@ -16,9 +16,13 @@ const DAYS_ES   = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
 const MONTHS_ES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 
 const VALID_SLOTS = [];
-for (let h = 7; h <= 18; h++) {
+for (let h = 7; h <= 11; h++) {
   VALID_SLOTS.push(`${String(h).padStart(2, '0')}:00`);
-  VALID_SLOTS.push(`${String(h).padStart(2, '0')}:30`);
+  if (h < 11) VALID_SLOTS.push(`${String(h).padStart(2, '0')}:30`);
+}
+for (let h = 14; h <= 18; h++) {
+  VALID_SLOTS.push(`${String(h).padStart(2, '0')}:00`);
+  if (h < 18) VALID_SLOTS.push(`${String(h).padStart(2, '0')}:30`);
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
