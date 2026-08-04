@@ -4,7 +4,7 @@ services:
   # 1. Contenedor de la Base de Datos (PostgreSQL)
   db:
     image: postgres:15
-    container_name: elysium_db
+    container_name: demo_db
     environment:
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: password_seguro
@@ -22,7 +22,7 @@ services:
   # 2. Contenedor del Backend (Python / FastAPI)
   backend:
     build: ./backend
-    container_name: elysium_backend
+    container_name: demo_backend
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
     ports:
       - "8000:8000"
@@ -32,16 +32,18 @@ services:
     environment:
       - DATABASE_URL=postgresql://admin:password_seguro@db:5432/elysium_agenda
       - JWT_SECRET_KEY=dev-secret-key-change-in-production
-      # Email (local dev leaves these blank → emails go to the log, not sent)
-      - GMAIL_USER=
-      - GMAIL_APP_PASSWORD=
+      # Email — dejar vacío en local: los correos se registran en el log pero no se envían
+      - RESEND_API_KEY=
+      - RESEND_FROM=Tu Estudio Pilates <onboarding@resend.dev>
+      - PORTAL_URL=http://localhost:3000/portal
+      - CLINIC_MAPS_URL=https://maps.google.com
     volumes:
       - ./backend:/app
 
   # 3. Contenedor del Frontend (React.js)
   frontend:
     build: ./frontend
-    container_name: elysium_frontend
+    container_name: demo_frontend
     command: npm start
     ports:
       - "3000:3000"

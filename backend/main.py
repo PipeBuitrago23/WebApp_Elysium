@@ -59,59 +59,19 @@ def _run_migrations():
 
 
 def _seed_admin():
-    hashed = bcrypt.hashpw(b"admin123", bcrypt.gensalt()).decode()
+    hashed = bcrypt.hashpw(b"Demo1234", bcrypt.gensalt()).decode()
     db = SessionLocal()
     try:
-        if not db.query(Usuario).filter(Usuario.email == "admin@elysium.com").first():
+        if not db.query(Usuario).filter(Usuario.email == "admin@demo.com").first():
             db.add(Usuario(
                 id=str(uuid.uuid4()),
-                email="admin@elysium.com",
+                email="admin@demo.com",
                 hashed_password=hashed,
-                nombre="Administrador",
+                nombre="Admin Demo",
                 es_admin=True,
+                habeas_data_aceptado=True,
             ))
             db.commit()
-    finally:
-        db.close()
-
-
-def _seed_paciente():
-    """Seed a test patient account for portal demo/testing."""
-    CEDULA = "00000001"
-    EMAIL  = "paciente@elysium.com"
-    db = SessionLocal()
-    try:
-        if not db.get(Paciente, CEDULA):
-            db.add(Paciente(
-                Paciente=CEDULA,
-                nombre="Carlos Pérez",
-                email=EMAIL,
-                telefono="3001234567",
-            ))
-
-        if not db.query(Usuario).filter(Usuario.email == EMAIL).first():
-            hashed = bcrypt.hashpw(b"paciente123", bcrypt.gensalt()).decode()
-            db.add(Usuario(
-                id=str(uuid.uuid4()),
-                email=EMAIL,
-                hashed_password=hashed,
-                nombre="Carlos Pérez",
-                es_admin=False,
-            ))
-
-        if not db.query(Pago).filter(Pago.paciente_id == CEDULA).first():
-            fecha_pago = date.today() - timedelta(days=5)
-            db.add(Pago(
-                id=str(uuid.uuid4()),
-                paciente_id=CEDULA,
-                tipo_paquete="Pilates",
-                total_sesiones=12,
-                sesiones_restantes=8,
-                fecha_pago=fecha_pago,
-                fecha_vencimiento=fecha_pago + timedelta(days=45),
-            ))
-
-        db.commit()
     finally:
         db.close()
 
@@ -178,7 +138,6 @@ async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
     _run_migrations()
     _seed_admin()
-    _seed_paciente()
     task_vencidas      = asyncio.create_task(_job_citas_vencidas())
     task_recordatorios = asyncio.create_task(_job_recordatorios())
     yield

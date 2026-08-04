@@ -2,8 +2,11 @@
 Demo seed script — wipes all patient/appointment/payment data and inserts 3 fictional
 patients with plans and upcoming appointments.
 
-Usage (run from the backend folder with the correct DATABASE_URL set):
-    python seed_demo.py
+Usage (desde la carpeta backend, con Docker local corriendo):
+    DATABASE_URL=postgresql://admin:password_seguro@localhost:5432/elysium_agenda python seed_demo.py
+
+Para Railway demo (reemplaza con tu URL real):
+    DATABASE_URL=postgresql://... python seed_demo.py
 """
 
 import os
