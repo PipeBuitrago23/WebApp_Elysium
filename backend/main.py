@@ -194,7 +194,7 @@ async def lifespan(app: FastAPI):
 _IS_PROD = os.getenv("RAILWAY_ENVIRONMENT") == "production"
 
 app = FastAPI(
-    title="Elysium Agenda API",
+    title="Tu Estudio Agenda API",
     lifespan=lifespan,
     docs_url=None if _IS_PROD else "/docs",
     redoc_url=None,

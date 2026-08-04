@@ -490,7 +490,7 @@ export default function PortalPage() {
     <div className="min-h-screen bg-slate-50">
       {/* Branding header */}
       <div className="bg-zinc-950 py-5 text-center">
-        <h1 className="text-lg font-light tracking-widest uppercase text-white">Elysium</h1>
+        <h1 className="text-lg font-light tracking-widest uppercase text-white">Tu Estudio</h1>
         <p className="text-[10px] text-zinc-400 uppercase tracking-widest mt-1">
           Fisioterapia &amp; Pilates
         </p>
@@ -531,7 +531,7 @@ export default function PortalPage() {
               <p className="text-red-600 text-sm text-center mt-4">{error}</p>
             )}
             <div className="mt-6 pt-5 border-t border-slate-100 text-center">
-              <p className="text-slate-400 text-xs mb-2">¿Primera vez en Elysium?</p>
+              <p className="text-slate-400 text-xs mb-2">¿Primera vez aquí?</p>
               <button
                 onClick={() => { setShowRegister(true); setError(''); }}
                 className="text-zinc-600 hover:text-zinc-900 text-sm font-medium underline underline-offset-2"
@@ -696,7 +696,7 @@ export default function PortalPage() {
               <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 text-center">
                 <p className="font-semibold text-amber-800 mb-1">Sin plan activo</p>
                 <p className="text-amber-600 text-sm">
-                  Puedes agendar tu Sesión de cortesía. Cuando asistas, el equipo de Elysium te asignará un plan.
+                  Puedes agendar tu Sesión de cortesía. Cuando asistas, el equipo del estudio te asignará un plan.
                 </p>
               </div>
             )}
@@ -750,7 +750,7 @@ export default function PortalPage() {
             </div>
 
             <p className="text-xs text-slate-300 text-center pt-2">
-              Elysium Fisio-Pilates · Portal del Paciente
+              Tu Estudio Pilates · Portal del Paciente
             </p>
           </div>
         )}
@@ -814,7 +814,7 @@ export default function PortalPage() {
               </p>
               <p>
                 <span className="font-semibold text-slate-700">Responsable del Tratamiento:</span>{' '}
-                Elysium Fisio-Pilates, identificado con el NIT registrado en Cámara de Comercio, con domicilio en Colombia.
+                Tu Estudio Pilates, identificado con el NIT registrado en Cámara de Comercio, con domicilio en Colombia.
               </p>
               <p>
                 <span className="font-semibold text-slate-700">Finalidad del Tratamiento:</span>{' '}
@@ -845,13 +845,13 @@ export default function PortalPage() {
               </p>
               <p>
                 <span className="font-semibold text-slate-700">Transferencia:</span>{' '}
-                Elysium Fisio-Pilates no compartirá, venderá ni cederá sus datos a terceros sin su
+                Tu Estudio Pilates no compartirá, venderá ni cederá sus datos a terceros sin su
                 consentimiento previo, salvo obligación legal.
               </p>
               <p>
                 <span className="font-semibold text-slate-700">Contacto:</span>{' '}
                 Para ejercer sus derechos comuníquese a través de los canales de atención de
-                Elysium Fisio-Pilates.
+                Tu Estudio Pilates.
               </p>
             </div>
             <div className="px-6 pb-5 pt-3 shrink-0 border-t border-slate-100">

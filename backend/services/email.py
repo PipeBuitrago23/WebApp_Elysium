@@ -8,7 +8,7 @@ import resend
 logger = logging.getLogger(__name__)
 
 RESEND_API_KEY = os.getenv("RESEND_API_KEY")
-FROM_EMAIL     = os.getenv("RESEND_FROM", "Elysium Fisio-Pilates <onboarding@resend.dev>")
+FROM_EMAIL     = os.getenv("RESEND_FROM", "Tu Estudio Pilates <onboarding@resend.dev>")
 
 if not RESEND_API_KEY:
     logger.warning(
@@ -38,12 +38,12 @@ def _google_cal_url(cita) -> str:
     dt_end   = dt_start + timedelta(minutes=_DURACION.get(cita.tipo, 60))
     fmt      = "%Y%m%dT%H%M%S"
     dates    = f"{dt_start.strftime(fmt)}/{dt_end.strftime(fmt)}"
-    text     = quote(f"Cita {cita.tipo} – Elysium Fisio-Pilates")
-    details  = quote(f"Cita de {cita.tipo} en Elysium Fisio-Pilates.")
+    text     = quote(f"Cita {cita.tipo} – Tu Estudio Pilates")
+    details  = quote(f"Cita de {cita.tipo} en Tu Estudio Pilates.")
     return (
         "https://calendar.google.com/calendar/render?action=TEMPLATE"
         f"&text={text}&dates={dates}&details={details}"
-        f"&location={quote('Elysium Fisio-Pilates')}"
+        f"&location={quote('Tu Estudio Pilates')}"
     )
 
 
@@ -82,7 +82,7 @@ def _base_template(title: str, content: str) -> str:
           <!-- Header -->
           <tr>
             <td style="background-color:#0f172a;border-radius:16px 16px 0 0;padding:32px;text-align:center;">
-              <p style="margin:0;font-size:22px;font-weight:300;color:#ffffff;letter-spacing:6px;text-transform:uppercase;">Elysium</p>
+              <p style="margin:0;font-size:22px;font-weight:300;color:#ffffff;letter-spacing:6px;text-transform:uppercase;">Tu Estudio</p>
               <p style="margin:6px 0 0;font-size:10px;color:#a1a1aa;letter-spacing:3px;text-transform:uppercase;">
                 Fisioterapia &amp; Pilates
               </p>
@@ -99,7 +99,7 @@ def _base_template(title: str, content: str) -> str:
           <!-- Footer -->
           <tr>
             <td style="background-color:#e2e8f0;border-radius:0 0 16px 16px;padding:24px 40px;text-align:center;">
-              <p style="margin:0 0 4px;font-size:12px;color:#94a3b8;font-weight:600;">Elysium Fisio-Pilates</p>
+              <p style="margin:0 0 4px;font-size:12px;color:#94a3b8;font-weight:600;">Tu Estudio Pilates</p>
               <p style="margin:0;font-size:11px;color:#cbd5e1;">
                 Este mensaje fue generado automáticamente. Por favor no respondas a este correo.
               </p>
@@ -129,7 +129,7 @@ def _build_confirmacion_html(nombre: str, cita, plan) -> str:
         ¡Tu cita está confirmada!
       </h2>
       <p style="color:#64748b;font-size:15px;margin:0 0 32px;">
-        Aquí tienes el resumen de tu reserva en Elysium.
+        Aquí tienes el resumen de tu reserva en Tu Estudio.
       </p>
 
       <!-- Cita card -->
@@ -159,7 +159,7 @@ def _build_confirmacion_html(nombre: str, cita, plan) -> str:
           <tr>
             <td style="padding:10px 0;">
               <span style="color:#d4d4d8;font-size:11px;display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:1px;">Instructor</span>
-              <span style="color:#ffffff;font-size:18px;font-weight:700;">Equipo Elysium</span>
+              <span style="color:#ffffff;font-size:18px;font-weight:700;">Equipo Tu Estudio</span>
             </td>
           </tr>
         </table>
@@ -219,7 +219,7 @@ def _build_confirmacion_html(nombre: str, cita, plan) -> str:
         </a>
       </div>"""
 
-    return _base_template("Confirmación de cita – Elysium", content)
+    return _base_template("Confirmación de cita – Tu Estudio", content)
 
 
 # ── Reminder template ─────────────────────────────────────────────────────────
@@ -267,7 +267,7 @@ def _build_recordatorio_html(nombre: str, cita, plan) -> str:
           <tr>
             <td style="padding:10px 0;">
               <span style="color:#d4d4d8;font-size:11px;display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:1px;">Instructor</span>
-              <span style="color:#ffffff;font-size:18px;font-weight:700;">Equipo Elysium</span>
+              <span style="color:#ffffff;font-size:18px;font-weight:700;">Equipo Tu Estudio</span>
             </td>
           </tr>
         </table>
@@ -327,7 +327,7 @@ def _build_recordatorio_html(nombre: str, cita, plan) -> str:
         </a>
       </div>"""
 
-    return _base_template("Recordatorio de cita – Elysium", content)
+    return _base_template("Recordatorio de cita – Tu Estudio", content)
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -408,7 +408,7 @@ def _build_pago_html(nombre: str, venta) -> str:
         Confirmación de pago
       </h2>
       <p style="color:#64748b;font-size:15px;margin:0 0 32px;">
-        Hemos registrado tu pago en Elysium Fisio-Pilates. Aquí tienes el resumen.
+        Hemos registrado tu pago en Tu Estudio Pilates. Aquí tienes el resumen.
       </p>
 
       <div style="background:linear-gradient(135deg,#27272a 0%,#3f3f46 100%);border-radius:16px;padding:28px;margin-bottom:28px;">
@@ -457,7 +457,7 @@ def _build_pago_html(nombre: str, venta) -> str:
         {estado_badge}
       </div>
 
-      {"" if venta.saldo == 0 else f'''<div style="background:#fff7ed;border-radius:12px;padding:16px 20px;margin-bottom:28px;border:1px solid #fed7aa;"><p style="color:#92400e;font-size:13px;margin:0;line-height:1.7;">⚠️ <strong>Recuerda:</strong> Tienes un saldo pendiente de <strong>{cop(venta.saldo)}</strong>. Por favor comunícate con Elysium para completar tu pago.</p></div>'''}
+      {"" if venta.saldo == 0 else f'''<div style="background:#fff7ed;border-radius:12px;padding:16px 20px;margin-bottom:28px;border:1px solid #fed7aa;"><p style="color:#92400e;font-size:13px;margin:0;line-height:1.7;">⚠️ <strong>Recuerda:</strong> Tienes un saldo pendiente de <strong>{cop(venta.saldo)}</strong>. Por favor comunícate con el estudio para completar tu pago.</p></div>'''}
 
       <div style="text-align:center;">
         <a href="{PORTAL_URL}"
@@ -466,7 +466,7 @@ def _build_pago_html(nombre: str, venta) -> str:
         </a>
       </div>"""
 
-    return _base_template("Confirmación de pago – Elysium", content)
+    return _base_template("Confirmación de pago – Tu Estudio", content)
 
 
 def send_confirmacion_pago(nombre: str, email: str, venta) -> None:

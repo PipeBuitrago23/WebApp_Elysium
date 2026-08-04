@@ -13,7 +13,7 @@ const titles = {
 
 export default function TopBar({ onMenuClick }) {
   const { pathname } = useLocation();
-  const title = titles[pathname] ?? 'Elysium';
+  const title = titles[pathname] ?? 'Tu Estudio';
 
   return (
     <header className="h-14 bg-white border-b border-slate-200 flex items-center px-4 md:px-6 shrink-0 gap-3">

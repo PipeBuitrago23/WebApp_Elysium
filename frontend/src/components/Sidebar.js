@@ -41,7 +41,7 @@ export default function Sidebar({ isOpen, onClose }) {
 
       {/* Brand */}
       <div className="px-6 py-5 border-b border-zinc-800">
-        <h1 className="text-lg font-light tracking-widest uppercase text-white">Elysium</h1>
+        <h1 className="text-lg font-light tracking-widest uppercase text-white">Tu Estudio</h1>
         <p className="text-[10px] text-zinc-500 uppercase tracking-widest mt-1">Fisioterapia & Pilates</p>
       </div>
 

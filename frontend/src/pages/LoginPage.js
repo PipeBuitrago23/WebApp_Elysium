@@ -29,7 +29,7 @@ export default function LoginPage() {
       <div className="w-full max-w-md">
 
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-light tracking-widest uppercase text-zinc-900">Elysium</h1>
+          <h1 className="text-3xl font-light tracking-widest uppercase text-zinc-900">Tu Estudio</h1>
           <p className="text-zinc-400 mt-2 text-xs tracking-widest uppercase">Fisioterapia & Pilates</p>
         </div>
 

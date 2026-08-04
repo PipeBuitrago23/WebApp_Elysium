@@ -26,7 +26,7 @@ function PolicyContent() {
       </p>
       <p>
         <span className="font-semibold text-slate-700">Responsable del Tratamiento:</span>{' '}
-        Elysium Fisio-Pilates, identificado con el NIT registrado en Cámara de Comercio,
+        Tu Estudio Pilates, identificado con el NIT registrado en Cámara de Comercio,
         con domicilio en Colombia.
       </p>
       <p>
@@ -62,13 +62,13 @@ function PolicyContent() {
       </p>
       <p>
         <span className="font-semibold text-slate-700">Transferencia de Datos:</span>{' '}
-        Elysium Fisio-Pilates no compartirá, venderá ni cederá sus datos personales
+        Tu Estudio Pilates no compartirá, venderá ni cederá sus datos personales
         a terceros sin su consentimiento previo, salvo obligación legal.
       </p>
       <p>
         <span className="font-semibold text-slate-700">Contacto:</span>{' '}
         Para ejercer sus derechos o consultar la política completa, comuníquese con
-        nosotros a través de los canales de atención de Elysium Fisio-Pilates.
+        nosotros a través de los canales de atención de Tu Estudio Pilates.
         Este documento puede actualizarse periódicamente; los cambios serán
         comunicados a los titulares con la debida anticipación.
       </p>
@@ -110,7 +110,7 @@ function HabeasDataModal() {
               Protección de Datos Personales
             </p>
             <h2 className="text-white text-sm font-light tracking-[0.25em] uppercase">
-              Elysium Fisio-Pilates
+              Tu Estudio Pilates
             </h2>
           </div>
 
@@ -128,7 +128,7 @@ function HabeasDataModal() {
 
             <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-5">
               <p className="text-slate-600 text-sm leading-relaxed">
-                Elysium Fisio-Pilates solicita su consentimiento para tratar sus{' '}
+                Tu Estudio Pilates solicita su consentimiento para tratar sus{' '}
                 <span className="font-semibold text-slate-800">
                   datos personales y datos sensibles de salud
                 </span>{' '}

@@ -240,7 +240,7 @@ def portal_crear_cita(request: Request, data: CitaPortalCreate, background_tasks
         if ya_tiene:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="Ya tienes una Sesión de cortesía registrada. Contacta a Elysium para adquirir un plan.",
+                detail="Ya tienes una Sesión de cortesía registrada. Contacta al estudio para adquirir un plan.",
             )
     else:
         plan = (
