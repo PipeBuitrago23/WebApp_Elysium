@@ -2,9 +2,11 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+> **Branch note:** `main` is the live production branch — real clinic data, **"Elysium Fisio-Pilates"** branding, seeded admin `admin@elysium.com` / `admin123` + auto-seeded test patient (`_seed_paciente()`), FastAPI title "Elysium Agenda API". `demo` (this branch) is a sanitized fork used for demos/screenshots: neutral **"Tu Estudio Pilates"** branding, generic admin seed, no auto-seeded test patient, and `backend/seed_demo.py` to wipe real data and load 3 fictional patients. Everything below documents the **`demo`** branch specifically — see the `main` branch's own `CLAUDE.md` for the production variant. Shared internals (DB name `elysium_agenda`, sessionStorage key `elysium_token`, container service names) were left unchanged on purpose and are **not** branding — don't "fix" them.
+
 ## Project Overview
 
-**Elysium Fisio-Pilates** — appointment scheduling PWA for a single-location physiotherapy/pilates clinic. Access is primarily driven by scanning a QR Code or opening a direct link, guiding users to a lightweight registration screen.
+**Tu Estudio Pilates** (internally still "Elysium" in code/DB identifiers — see branch note above) — appointment scheduling PWA for a single-location physiotherapy/pilates clinic. Access is primarily driven by scanning a QR Code or opening a direct link, guiding users to a lightweight registration screen.
 
 ### User Roles & Permissions
 - **Admin / Staff (Fisioterapeuta):**
@@ -28,10 +30,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 | Role | Email | Password | Redirects to |
 |------|-------|----------|--------------|
-| Admin | `admin@elysium.com` | `admin123` | `/dashboard` |
-| Patient | `paciente@elysium.com` | `paciente123` | `/portal` (auto-loads Carlos Pérez, cedula `00000001`, Pilates 8/12) |
+| Admin | `admin@demo.com` | `Demo1234` | `/dashboard` |
 
-Admin and test patient are auto-seeded by `_seed_admin()` and `_seed_paciente()` in `main.py` on every startup. There is no seeded médico account — create one from `/medicos` (Admin panel) or `POST /medicos/`.
+Only the admin is auto-seeded by `_seed_admin()` in `main.py` on every startup — `_seed_paciente()` was removed on this branch. There is no seeded médico account — create one from `/medicos` (Admin panel) or `POST /medicos/`.
+
+**Demo patients (via `backend/seed_demo.py`, run manually — not part of startup):** wipes `citas`/`pagos`/`ventas`/`gastos`/`pacientes` and inserts 3 fictional patients, each with an active plan and upcoming citas:
+
+| Cédula | Nombre | Plan | Notes |
+|--------|--------|------|-------|
+| `1000000001` | Laura Martínez Ruiz | Pilates 10 ses. (6 restantes) | 2 citas próximas |
+| `1000000002` | Carlos Herrera Gómez | Fisioterapia 8 ses. (recién comprado) | 1 cita esta semana |
+| `1000000003` | Sofía Ramírez Torres | Pilates 5 ses. (4 restantes) | saldo pendiente $60.000 |
+
+Run it with `DATABASE_URL=postgresql://admin:password_seguro@localhost:5432/elysium_agenda python seed_demo.py` from `./backend` (adjust `DATABASE_URL` for Railway).
 
 ## Core Business Rules & Policies
 
@@ -103,18 +114,19 @@ Service URLs when running:
 
 ## Architecture
 
-Three Docker containers (`docker-compose.yml`):
+Three Docker containers (`docker-compose.yml`), named `demo_db` / `demo_backend` / `demo_frontend` on this branch (`elysium_*` on `main`):
 
 1. **`db`** — `postgres:15`, credentials `admin / password_seguro`, DB `elysium_agenda`. Has a healthcheck; backend waits for it.
-2. **`backend`** — FastAPI, `./backend/`, entry `main:app`, uvicorn hot-reload. Creates DB tables and seeds admin + test patient on startup via `lifespan`.
+2. **`backend`** — FastAPI (title "Tu Estudio Agenda API"), `./backend/`, entry `main:app`, uvicorn hot-reload. Creates DB tables and seeds **admin only** on startup via `lifespan` (see Test Accounts — demo patients come from `seed_demo.py`, run manually).
 3. **`frontend`** — CRA React, `./frontend/`, `npm start`. Volume-mounted for hot-reload.
 
 ### Backend layout (`./backend/`)
 
 ```
-main.py              # App factory, CORS, lifespan (create_all + _run_migrations + seeds + background jobs)
+main.py              # App factory, CORS, lifespan (create_all + _run_migrations + _seed_admin + background jobs)
 database.py          # SQLAlchemy engine, SessionLocal, Base, get_db()
 limiter.py           # slowapi Limiter instance shared across routers
+seed_demo.py         # Manual script (not run on startup): wipes real data, inserts 3 fictional demo patients + plans + citas
 auth/
   jwt.py             # create_access_token / verify_token / get_current_user / require_admin / require_medico
 models/
@@ -225,7 +237,7 @@ pages/
 
 ```json
 {
-  "sub": "admin@elysium.com",
+  "sub": "admin@demo.com",
   "nombre": "Administrador",
   "es_admin": true,
   "es_medico": false,
@@ -307,7 +319,7 @@ New patients self-register via `/portal` → "Crea tu perfil aquí":
 **All core features complete:**
 - [x] Full Docker Compose setup (db + backend + frontend) with healthcheck
 - [x] JWT auth with role-based redirect: admin → `/dashboard`, patient → `/portal`
-- [x] Admin and test patient auto-seeded on startup
+- [x] Admin auto-seeded on startup (`admin@demo.com`); demo patients loaded on-demand via `backend/seed_demo.py`
 - [x] Dashboard layout: dark sidebar, nav with icons, topbar, user info + logout
 - [x] Dashboard home: real stats — citas hoy/semana/mes split by Pilates/Fisio, pacientes activos/inactivos, próxima cita + today's table
 - [x] `backend/models/paciente.py` + full CRUD `routes/pacientes.py` (require_admin)
