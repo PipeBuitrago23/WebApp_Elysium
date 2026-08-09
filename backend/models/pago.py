@@ -12,4 +12,5 @@ class Pago(Base):
     total_sesiones      = Column(Integer, nullable=False)
     sesiones_restantes  = Column(Integer, nullable=False)
     fecha_pago          = Column(Date,    nullable=False)
-    fecha_vencimiento   = Column(Date,    nullable=False)   # computed server-side: fecha_pago + 45d
+    fecha_inicio        = Column(Date,    nullable=False)   # base for fecha_vencimiento — puede diferir de fecha_pago
+    fecha_vencimiento   = Column(Date,    nullable=False)   # computed server-side: fecha_inicio + 45d

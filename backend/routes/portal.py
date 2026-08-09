@@ -4,6 +4,7 @@ from datetime import date, datetime, time, timedelta
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.orm import Session
+from core.planes import plan_disponible
 from database import get_db
 from limiter import limiter
 from models.cita import Cita
@@ -42,7 +43,7 @@ class CitaResumen(BaseModel):
 class PortalOut(BaseModel):
     paciente_id: str
     nombre: str
-    plan_activo: PlanOut | None
+    planes_activos: list[PlanOut]
     citas_proximas: list[CitaResumen]
 
 
@@ -163,15 +164,15 @@ def get_portal(cedula: str, db: Session = Depends(get_db)):
 
     hoy = date.today()
 
-    plan = (
+    planes = (
         db.query(Pago)
         .filter(
             Pago.paciente_id == cedula,
             Pago.fecha_vencimiento >= hoy,
             Pago.sesiones_restantes > 0,
         )
-        .order_by(Pago.fecha_pago.desc())
-        .first()
+        .order_by(Pago.fecha_vencimiento.asc())
+        .all()
     )
 
     citas = (
@@ -189,7 +190,7 @@ def get_portal(cedula: str, db: Session = Depends(get_db)):
     return PortalOut(
         paciente_id=pac.Paciente,
         nombre=pac.nombre,
-        plan_activo=plan,
+        planes_activos=planes,
         citas_proximas=citas,
     )
 
@@ -218,7 +219,7 @@ def portal_registro(request: Request, data: RegistroCreate, db: Session = Depend
     db.add(pac)
     db.commit()
     db.refresh(pac)
-    return PortalOut(paciente_id=pac.Paciente, nombre=pac.nombre, plan_activo=None, citas_proximas=[])
+    return PortalOut(paciente_id=pac.Paciente, nombre=pac.nombre, planes_activos=[], citas_proximas=[])
 
 
 @router.post("/citas", response_model=CitaResumen, status_code=status.HTTP_201_CREATED)
@@ -243,15 +244,7 @@ def portal_crear_cita(request: Request, data: CitaPortalCreate, background_tasks
                 detail="Ya tienes una Sesión de cortesía registrada. Contacta a Elysium para adquirir un plan.",
             )
     else:
-        plan = (
-            db.query(Pago)
-            .filter(
-                Pago.paciente_id == data.paciente_id,
-                Pago.fecha_vencimiento >= data.fecha,
-                Pago.sesiones_restantes > 0,
-            )
-            .first()
-        )
+        plan = plan_disponible(db, data.paciente_id, data.tipo, data.fecha)
         if not plan:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -288,11 +281,8 @@ def portal_crear_cita(request: Request, data: CitaPortalCreate, background_tasks
 
     pac = db.get(Paciente, data.paciente_id)
     if pac and pac.email:
-        email_plan = None if data.tipo == "Sesión de cortesía" else (
-            db.query(Pago)
-            .filter(Pago.paciente_id == data.paciente_id, Pago.sesiones_restantes > 0)
-            .order_by(Pago.fecha_pago.desc())
-            .first()
+        email_plan = None if data.tipo == "Sesión de cortesía" else plan_disponible(
+            db, data.paciente_id, data.tipo, date.today()
         )
         background_tasks.add_task(send_confirmacion, pac.nombre, pac.email, row, email_plan)
 
@@ -321,15 +311,7 @@ def portal_crear_cita_recurrente(
     for i in range(data.repeticiones):
         fecha = data.fecha_inicio + timedelta(weeks=i)
 
-        plan = (
-            db.query(Pago)
-            .filter(
-                Pago.paciente_id == data.paciente_id,
-                Pago.fecha_vencimiento >= fecha,
-                Pago.sesiones_restantes > 0,
-            )
-            .first()
-        )
+        plan = plan_disponible(db, data.paciente_id, data.tipo, fecha)
         if not plan:
             omitidas.append(CitaOmitida(fecha=fecha, motivo="Tu plan no está vigente para esa fecha."))
             continue
@@ -451,15 +433,7 @@ def portal_reprogramar_cita(
 
     # Verify plan covers the new date (not required for courtesy sessions)
     if cita.tipo != "Sesión de cortesía":
-        plan = (
-            db.query(Pago)
-            .filter(
-                Pago.paciente_id == cita.paciente_id,
-                Pago.fecha_vencimiento >= data.fecha,
-                Pago.sesiones_restantes > 0,
-            )
-            .first()
-        )
+        plan = plan_disponible(db, cita.paciente_id, cita.tipo, data.fecha)
         if not plan:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

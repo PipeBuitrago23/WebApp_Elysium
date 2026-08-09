@@ -18,6 +18,7 @@ class PagoCreate(BaseModel):
     tipo_paquete:   str
     total_sesiones: int
     fecha_pago:     date
+    fecha_inicio:   date
 
     @field_validator("tipo_paquete")
     @classmethod
@@ -43,6 +44,7 @@ class PagoOut(BaseModel):
     total_sesiones:     int
     sesiones_restantes: int
     fecha_pago:         date
+    fecha_inicio:       date
     fecha_vencimiento:  date
 
 
@@ -76,7 +78,8 @@ def create_pago(
         total_sesiones     = data.total_sesiones,
         sesiones_restantes = data.total_sesiones,
         fecha_pago         = data.fecha_pago,
-        fecha_vencimiento  = data.fecha_pago + timedelta(days=VIGENCIA_DIAS),
+        fecha_inicio       = data.fecha_inicio,
+        fecha_vencimiento  = data.fecha_inicio + timedelta(days=VIGENCIA_DIAS),
     )
     db.add(row)
     db.commit()

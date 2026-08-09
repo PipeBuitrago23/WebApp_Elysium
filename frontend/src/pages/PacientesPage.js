@@ -22,6 +22,7 @@ const EMPTY_PLAN = {
   enabled:        false,
   tipo_paquete:   'Pilates',
   total_sesiones: '',
+  fecha_inicio:   new Date().toISOString().split('T')[0],
   fecha_pago:     new Date().toISOString().split('T')[0],
 };
 
@@ -64,17 +65,19 @@ export default function PacientesPage() {
   const [viewing,   setViewing]   = useState(null);
   const [saving,    setSaving]    = useState(false);
 
-  // Active plan per patient (most recent non-expired with sessions left)
-  const pagosMap = useMemo(() => {
+  // All active plans per patient (a patient can have more than one active
+  // plan at once — e.g. Pilates + Fisioterapia, or a renewal purchased
+  // before the old one expired). Sorted soonest-to-expire first, matching
+  // the backend's consumption order (core/planes.py:plan_disponible).
+  const planesActivosMap = useMemo(() => {
     const today = new Date().toISOString().split('T')[0];
     const map = {};
-    pagos.forEach((p) => {
-      if (p.fecha_vencimiento >= today && p.sesiones_restantes > 0) {
-        if (!map[p.paciente_id] || p.fecha_pago > map[p.paciente_id].fecha_pago) {
-          map[p.paciente_id] = p;
-        }
-      }
-    });
+    pagos
+      .filter((p) => p.fecha_vencimiento >= today && p.sesiones_restantes > 0)
+      .sort((a, b) => a.fecha_vencimiento.localeCompare(b.fecha_vencimiento))
+      .forEach((p) => {
+        (map[p.paciente_id] ||= []).push(p);
+      });
     return map;
   }, [pagos]);
 
@@ -116,7 +119,7 @@ export default function PacientesPage() {
         cirugias:        p.cirugias        || '',
       },
       plan:       { ...EMPTY_PLAN },
-      activePlan: pagosMap[p.Paciente] || null,
+      activePlans: planesActivosMap[p.Paciente] || [],
       formError:  '',
     });
   }
@@ -168,6 +171,7 @@ export default function PacientesPage() {
           paciente_id:    pacienteId,
           tipo_paquete:   plan.tipo_paquete,
           total_sesiones: parseInt(plan.total_sesiones),
+          fecha_inicio:   plan.fecha_inicio,
           fecha_pago:     plan.fecha_pago,
         });
       }
@@ -248,24 +252,37 @@ export default function PacientesPage() {
               <tr><td colSpan={7} className="text-center py-10 text-slate-400">No se encontraron pacientes.</td></tr>
             )}
             {!loading && pacientes.map((p) => {
-              const plan = pagosMap[p.Paciente];
+              const planes = planesActivosMap[p.Paciente] || [];
               return (
                 <tr key={p.Paciente} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
                   <td className="px-4 py-3 font-mono text-xs text-slate-500">{p.Paciente}</td>
                   <td className="px-4 py-3 font-medium text-slate-800">{p.nombre}</td>
                   <td className="px-4 py-3 text-slate-500">{p.telefono || '—'}</td>
-                  <td className="px-4 py-3">
-                    {plan
-                      ? <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${PAQUETE_STYLE[plan.tipo_paquete] || 'bg-slate-100 text-slate-600'}`}>{plan.tipo_paquete}</span>
-                      : <span className="text-xs text-slate-400">Sin plan</span>
-                    }
-                  </td>
-                  <td className="px-4 py-3 text-slate-700 tabular-nums">
-                    {plan ? `${plan.sesiones_restantes} / ${plan.total_sesiones}` : '—'}
-                  </td>
-                  <td className={`px-4 py-3 text-sm ${plan ? venceColor(plan.fecha_vencimiento) : 'text-slate-400'}`}>
-                    {plan ? fmtDate(plan.fecha_vencimiento) : '—'}
-                  </td>
+                  {planes.length === 0 ? (
+                    <>
+                      <td className="px-4 py-3"><span className="text-xs text-slate-400">Sin plan</span></td>
+                      <td className="px-4 py-3 text-slate-700 tabular-nums">—</td>
+                      <td className="px-4 py-3 text-sm text-slate-400">—</td>
+                    </>
+                  ) : (
+                    <td className="px-4 py-3" colSpan={3}>
+                      <div className="space-y-1">
+                        {planes.map((plan) => (
+                          <div key={plan.id} className="flex items-center gap-3">
+                            <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${PAQUETE_STYLE[plan.tipo_paquete] || 'bg-slate-100 text-slate-600'}`}>
+                              {plan.tipo_paquete}
+                            </span>
+                            <span className="text-slate-700 tabular-nums text-sm">
+                              {plan.sesiones_restantes} / {plan.total_sesiones}
+                            </span>
+                            <span className={`text-sm ${venceColor(plan.fecha_vencimiento)}`}>
+                              {fmtDate(plan.fecha_vencimiento)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </td>
+                  )}
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-1 justify-end">
                       <button onClick={() => setViewing(p)} className="p-1.5 rounded hover:bg-slate-100 text-slate-400 hover:text-zinc-700 transition-colors">
@@ -294,7 +311,7 @@ export default function PacientesPage() {
             <div className="text-center py-10 text-slate-400 text-sm">No se encontraron pacientes.</div>
           )}
           {!loading && pacientes.map((p) => {
-            const plan = pagosMap[p.Paciente];
+            const planes = planesActivosMap[p.Paciente] || [];
             return (
               <div key={p.Paciente} className="px-4 py-3.5 border-b border-slate-100 last:border-0">
                 <div className="flex items-start justify-between gap-2">
@@ -314,24 +331,27 @@ export default function PacientesPage() {
                     </button>
                   </div>
                 </div>
-                <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                <div className="mt-2 flex items-center gap-x-3">
                   {p.telefono && <span className="text-xs text-slate-500">{p.telefono}</span>}
-                  {plan ? (
-                    <>
-                      <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${PAQUETE_STYLE[plan.tipo_paquete] || 'bg-slate-100 text-slate-600'}`}>
-                        {plan.tipo_paquete}
-                      </span>
-                      <span className="text-xs text-slate-600 font-medium">
-                        {plan.sesiones_restantes}/{plan.total_sesiones} ses.
-                      </span>
-                      <span className={`text-xs ${venceColor(plan.fecha_vencimiento)}`}>
-                        Vence {fmtDate(plan.fecha_vencimiento)}
-                      </span>
-                    </>
-                  ) : (
-                    <span className="text-xs text-slate-400">Sin plan</span>
-                  )}
+                  {planes.length === 0 && <span className="text-xs text-slate-400">Sin plan</span>}
                 </div>
+                {planes.length > 0 && (
+                  <div className="mt-1.5 space-y-1">
+                    {planes.map((plan) => (
+                      <div key={plan.id} className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                        <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${PAQUETE_STYLE[plan.tipo_paquete] || 'bg-slate-100 text-slate-600'}`}>
+                          {plan.tipo_paquete}
+                        </span>
+                        <span className="text-xs text-slate-600 font-medium">
+                          {plan.sesiones_restantes}/{plan.total_sesiones} ses.
+                        </span>
+                        <span className={`text-xs ${venceColor(plan.fecha_vencimiento)}`}>
+                          Vence {fmtDate(plan.fecha_vencimiento)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             );
           })}
@@ -375,22 +395,26 @@ export default function PacientesPage() {
               <div className="border-t border-slate-100 pt-4 space-y-3">
                 <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Plan / paquete</p>
 
-                {/* Active plan badge (edit only) */}
-                {modal.mode === 'edit' && modal.activePlan && (
-                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex flex-wrap items-center gap-3">
-                    <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${PAQUETE_STYLE[modal.activePlan.tipo_paquete] || ''}`}>
-                      {modal.activePlan.tipo_paquete}
-                    </span>
-                    <span className="text-sm text-slate-700">
-                      {modal.activePlan.sesiones_restantes} / {modal.activePlan.total_sesiones} sesiones
-                    </span>
-                    <span className={`text-sm ${venceColor(modal.activePlan.fecha_vencimiento)}`}>
-                      Vence {fmtDate(modal.activePlan.fecha_vencimiento)}
-                    </span>
+                {/* Active plan badges (edit only) */}
+                {modal.mode === 'edit' && modal.activePlans.length > 0 && (
+                  <div className="space-y-2">
+                    {modal.activePlans.map((plan) => (
+                      <div key={plan.id} className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex flex-wrap items-center gap-3">
+                        <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${PAQUETE_STYLE[plan.tipo_paquete] || ''}`}>
+                          {plan.tipo_paquete}
+                        </span>
+                        <span className="text-sm text-slate-700">
+                          {plan.sesiones_restantes} / {plan.total_sesiones} sesiones
+                        </span>
+                        <span className={`text-sm ${venceColor(plan.fecha_vencimiento)}`}>
+                          Vence {fmtDate(plan.fecha_vencimiento)}
+                        </span>
+                      </div>
+                    ))}
                   </div>
                 )}
 
-                {modal.mode === 'edit' && !modal.activePlan && (
+                {modal.mode === 'edit' && modal.activePlans.length === 0 && (
                   <p className="text-sm text-slate-400">Este paciente no tiene un plan activo.</p>
                 )}
 
@@ -435,19 +459,31 @@ export default function PacientesPage() {
                       </div>
                     </div>
 
-                    {/* Sesiones + fecha pago */}
+                    {/* Sesiones */}
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">Sesiones totales</label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="100"
+                        value={modal.plan.total_sesiones}
+                        onChange={(e) => handlePlanChange({ total_sesiones: e.target.value })}
+                        placeholder="Ej. 10"
+                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-500 bg-white"
+                      />
+                    </div>
+
+                    {/* Fecha de inicio + fecha de pago */}
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-xs font-medium text-slate-600 mb-1">Sesiones totales</label>
+                        <label className="block text-xs font-medium text-slate-600 mb-1">Fecha de inicio del plan</label>
                         <input
-                          type="number"
-                          min="1"
-                          max="100"
-                          value={modal.plan.total_sesiones}
-                          onChange={(e) => handlePlanChange({ total_sesiones: e.target.value })}
-                          placeholder="Ej. 10"
+                          type="date"
+                          value={modal.plan.fecha_inicio}
+                          onChange={(e) => handlePlanChange({ fecha_inicio: e.target.value })}
                           className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-500 bg-white"
                         />
+                        <p className="text-[11px] text-slate-400 mt-1">Desde aquí se cuentan los 45 días de vigencia.</p>
                       </div>
                       <div>
                         <label className="block text-xs font-medium text-slate-600 mb-1">Fecha de pago</label>
@@ -457,15 +493,16 @@ export default function PacientesPage() {
                           onChange={(e) => handlePlanChange({ fecha_pago: e.target.value })}
                           className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-500 bg-white"
                         />
+                        <p className="text-[11px] text-slate-400 mt-1">Puede ser distinta si pagó en abonos.</p>
                       </div>
                     </div>
 
                     {/* Expiration preview */}
-                    {modal.plan.fecha_pago && (
+                    {modal.plan.fecha_inicio && (
                       <div className="flex items-center gap-2 text-sm bg-zinc-50 border border-zinc-100 rounded-lg px-3 py-2">
                         <span className="text-zinc-700 font-medium">Vigencia:</span>
                         <span className="text-zinc-800 font-semibold">
-                          {fmtDate(modal.plan.fecha_pago)} → {fmtDate(addDays(modal.plan.fecha_pago, 45))}
+                          {fmtDate(modal.plan.fecha_inicio)} → {fmtDate(addDays(modal.plan.fecha_inicio, 45))}
                         </span>
                         <span className="text-zinc-500 text-xs ml-auto">45 días</span>
                       </div>

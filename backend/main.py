@@ -51,6 +51,10 @@ def _run_migrations():
         "ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS es_medico BOOLEAN NOT NULL DEFAULT FALSE",
         "ALTER TABLE citas ADD COLUMN IF NOT EXISTS medico_id VARCHAR REFERENCES usuarios(id)",
         "ALTER TABLE citas ADD COLUMN IF NOT EXISTS motivo_remision TEXT",
+        # Fecha de inicio del plan, separada de la fecha de pago (puede pagarse en abonos)
+        "ALTER TABLE pagos ADD COLUMN IF NOT EXISTS fecha_inicio DATE",
+        "UPDATE pagos SET fecha_inicio = fecha_pago WHERE fecha_inicio IS NULL",
+        "ALTER TABLE pagos ALTER COLUMN fecha_inicio SET NOT NULL",
     ]
     with engine.connect() as conn:
         for stmt in stmts:
@@ -108,6 +112,7 @@ def _seed_paciente():
                 total_sesiones=12,
                 sesiones_restantes=8,
                 fecha_pago=fecha_pago,
+                fecha_inicio=fecha_pago,
                 fecha_vencimiento=fecha_pago + timedelta(days=45),
             ))
 
@@ -152,14 +157,15 @@ async def _job_recordatorios():
                 for cita in pendientes:
                     pac = db.get(Paciente, cita.paciente_id)
                     if pac and pac.email:
-                        plan = (
+                        plan = None if cita.tipo == "Sesión de cortesía" else (
                             db.query(Pago)
                             .filter(
                                 Pago.paciente_id == cita.paciente_id,
+                                Pago.tipo_paquete == cita.tipo,
                                 Pago.fecha_vencimiento >= manana,
                                 Pago.sesiones_restantes > 0,
                             )
-                            .order_by(Pago.fecha_pago.desc())
+                            .order_by(Pago.fecha_vencimiento.asc())
                             .first()
                         )
                         send_recordatorio(pac.nombre, pac.email, cita, plan)
