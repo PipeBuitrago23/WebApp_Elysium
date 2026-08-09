@@ -689,9 +689,13 @@ export default function PortalPage() {
               </div>
             )}
 
-            {/* Plan */}
-            {paciente.plan_activo ? (
-              <PlanCard plan={paciente.plan_activo} />
+            {/* Plan(es) */}
+            {paciente.planes_activos.length > 0 ? (
+              <div className="space-y-3">
+                {paciente.planes_activos.map((plan) => (
+                  <PlanCard key={plan.tipo_paquete + plan.fecha_vencimiento} plan={plan} />
+                ))}
+              </div>
             ) : (
               <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 text-center">
                 <p className="font-semibold text-amber-800 mb-1">Sin plan activo</p>
@@ -737,12 +741,12 @@ export default function PortalPage() {
                   onClick={() => { setBookingOpen(true); setSuccessMsg(''); }}
                   className="w-full py-3.5 bg-zinc-800 hover:bg-zinc-900 text-white font-semibold rounded-xl transition-all"
                 >
-                  {paciente.plan_activo ? 'Reservar nueva cita' : 'Agendar Sesión de cortesía'}
+                  {paciente.planes_activos.length > 0 ? 'Reservar nueva cita' : 'Agendar Sesión de cortesía'}
                 </button>
               ) : (
                 <BookingForm
                   pacienteId={paciente.paciente_id}
-                  sinPlan={!paciente.plan_activo}
+                  sinPlan={paciente.planes_activos.length === 0}
                   onSuccess={handleBookingSuccess}
                   onCancel={() => setBookingOpen(false)}
                 />

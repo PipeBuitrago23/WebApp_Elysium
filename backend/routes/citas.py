@@ -5,10 +5,10 @@ from pydantic import BaseModel, ConfigDict, field_validator
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from auth.jwt import require_admin
+from core.planes import descontar_sesion, plan_disponible
 from database import get_db
 from models.cita import Cita
 from models.paciente import Paciente
-from models.pago import Pago
 from models.usuario import Usuario
 from services.email import send_confirmacion
 
@@ -25,33 +25,6 @@ HORAS_CANCELACION   = 2
 
 def _cita_datetime(cita: Cita) -> datetime:
     return datetime.combine(cita.fecha, cita.hora)
-
-
-def _descuenta_sesion(db: Session, paciente_id: str, required: bool = True) -> None:
-    """Deduct 1 session from the patient's most recent active plan.
-
-    Citas remitidas por un médico (medico_id set) no exigen plan activo, así que
-    required=False simplemente omite el descuento si no hay plan — igual que ya
-    toleraba procesar_citas_vencidas para no bloquear el flujo de remisión.
-    """
-    pago = (
-        db.query(Pago)
-        .filter(
-            Pago.paciente_id == paciente_id,
-            Pago.fecha_vencimiento >= date.today(),
-            Pago.sesiones_restantes > 0,
-        )
-        .order_by(Pago.fecha_pago.desc())
-        .first()
-    )
-    if not pago:
-        if required:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="El paciente no tiene sesiones disponibles en un plan activo.",
-            )
-        return
-    pago.sesiones_restantes -= 1
 
 
 def procesar_citas_vencidas(db: Session) -> int:
@@ -79,7 +52,8 @@ def procesar_citas_vencidas(db: Session) -> int:
 
     procesadas = 0
     for cita in vencidas:
-        _descuenta_sesion(db, cita.paciente_id, required=False)
+        if cita.tipo != "Sesión de cortesía":
+            descontar_sesion(db, cita.paciente_id, cita.tipo, required=False)
         cita.estado = "No asistió con penalización"
         procesadas += 1
 
@@ -240,18 +214,11 @@ def create_cita(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Médico no encontrado")
 
     # ① Active plan must cover the appointment date — citas remitidas por un médico
-    # (medico_id) no lo exigen: son consultas de remisión, el paciente aún no tiene paquete.
+    # (medico_id) no lo exigen: son consultas de remisión, el paciente aún no tiene
+    # paquete. "Sesión de cortesía" tampoco: nunca tiene Pago propio (ver core/planes.py).
     plan = None
-    if not data.medico_id:
-        plan = (
-            db.query(Pago)
-            .filter(
-                Pago.paciente_id == data.paciente_id,
-                Pago.fecha_vencimiento >= data.fecha,
-                Pago.sesiones_restantes > 0,
-            )
-            .first()
-        )
+    if not data.medico_id and data.tipo != "Sesión de cortesía":
+        plan = plan_disponible(db, data.paciente_id, data.tipo, data.fecha)
         if not plan:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -312,8 +279,9 @@ def patch_estado(
 
     # Deduct session for attended or penalized outcomes.
     # Citas remitidas por un médico no exigen plan activo (ver create_cita).
-    if nuevo in ESTADOS_CON_DESCUENTO:
-        _descuenta_sesion(db, cita.paciente_id, required=cita.medico_id is None)
+    # "Sesión de cortesía" nunca descuenta de un Pago (no tiene uno propio).
+    if nuevo in ESTADOS_CON_DESCUENTO and cita.tipo != "Sesión de cortesía":
+        descontar_sesion(db, cita.paciente_id, cita.tipo, required=cita.medico_id is None)
 
     cita.estado = nuevo
     db.commit()
