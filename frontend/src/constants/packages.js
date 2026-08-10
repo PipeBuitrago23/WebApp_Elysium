@@ -33,10 +33,10 @@ export const PACKAGES = {
     { nombre: 'Terapia Suelo Pélvico', sesiones: 1,  precio: 119000 },
   ],
   Combos: [
-    { nombre: 'Plan Basic Plus 4P+2F',     sesiones: 6,  precio: 318000 },
-    { nombre: 'Plan Pro Plus 8P+2F',       sesiones: 10, precio: 428000 },
-    { nombre: 'Plan Advanced Plus 12P+3F', sesiones: 15, precio: 583000 },
-    { nombre: 'Plan Elite Plus 16P+4F',    sesiones: 20, precio: 751000 },
+    { nombre: 'Plan Basic Plus 4P+2F',     sesiones: 6,  precio: 318000, split: { Pilates: 4,  Fisioterapia: 2 } },
+    { nombre: 'Plan Pro Plus 8P+2F',       sesiones: 10, precio: 428000, split: { Pilates: 8,  Fisioterapia: 2 } },
+    { nombre: 'Plan Advanced Plus 12P+3F', sesiones: 15, precio: 583000, split: { Pilates: 12, Fisioterapia: 3 } },
+    { nombre: 'Plan Elite Plus 16P+4F',    sesiones: 20, precio: 751000, split: { Pilates: 16, Fisioterapia: 4 } },
   ],
   'Prendas de Vestir': [],
 };

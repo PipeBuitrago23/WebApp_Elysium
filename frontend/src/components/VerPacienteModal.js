@@ -130,6 +130,7 @@ export default function VerPacienteModal({ paciente, onClose, onEdit }) {
                     <span className="text-sm text-slate-700 tabular-nums">
                       {p.sesiones_restantes} / {p.total_sesiones} sesiones
                     </span>
+                    <span className="text-xs text-slate-400">Inicia {fmtDate(p.fecha_inicio)}</span>
                     <span className="text-xs text-slate-400">Pagado {fmtDate(p.fecha_pago)}</span>
                     <span className={`text-xs ml-auto ${venceColor(p.fecha_vencimiento)}`}>
                       Vence {fmtDate(p.fecha_vencimiento)}

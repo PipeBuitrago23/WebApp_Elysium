@@ -1,45 +1,28 @@
-import axios from 'axios';
-
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-
-function authHeaders() {
-  const token = sessionStorage.getItem('elysium_token');
-  return { Authorization: `Bearer ${token}` };
-}
+import client from './client';
 
 export async function getPacientes(q = '') {
   const params = q ? { q } : {};
-  const { data } = await axios.get(`${API_URL}/pacientes/`, {
-    headers: authHeaders(),
-    params,
-  });
+  const { data } = await client.get('/pacientes/', { params });
   return data;
 }
 
 export async function getPaciente(id) {
-  const { data } = await axios.get(`${API_URL}/pacientes/${id}`, {
-    headers: authHeaders(),
-  });
+  const { data } = await client.get(`/pacientes/${id}`);
   return data;
 }
 
 export async function createPaciente(body) {
-  const { data } = await axios.post(`${API_URL}/pacientes/`, body, {
-    headers: authHeaders(),
-  });
+  const { data } = await client.post('/pacientes/', body);
   return data;
 }
 
 export async function updatePaciente(id, body) {
-  const { data } = await axios.put(`${API_URL}/pacientes/${id}`, body, {
-    headers: authHeaders(),
-  });
+  const { data } = await client.put(`/pacientes/${id}`, body);
   return data;
 }
 
 export async function deletePaciente(id, force = false) {
-  await axios.delete(`${API_URL}/pacientes/${id}`, {
-    headers: authHeaders(),
+  await client.delete(`/pacientes/${id}`, {
     params: force ? { force: true } : {},
   });
 }

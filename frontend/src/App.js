@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { TenantProvider, useTenant } from './context/TenantContext';
 import PrivateRoute from './components/PrivateRoute';
 import MedicoRoute from './components/MedicoRoute';
+import FeatureRoute from './components/FeatureRoute';
 import LoginPage from './pages/LoginPage';
 import DashboardLayout from './layouts/DashboardLayout';
 import DashboardHome from './pages/DashboardHome';
@@ -81,6 +83,7 @@ function PolicyContent() {
 
 function HabeasDataModal() {
   const { user, acceptHabeas } = useAuth();
+  const { tenant } = useTenant();
   const [loading, setLoading]     = useState(false);
   const [error, setError]         = useState('');
   const [policyOpen, setPolicyOpen] = useState(false);
@@ -110,7 +113,7 @@ function HabeasDataModal() {
               Protección de Datos Personales
             </p>
             <h2 className="text-white text-sm font-light tracking-[0.25em] uppercase">
-              Elysium Fisio-Pilates
+              {tenant.nombre_comercial}
             </h2>
           </div>
 
@@ -203,30 +206,32 @@ function HabeasDataModal() {
 
 function App() {
   return (
-    <AuthProvider>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/portal" element={<PortalPage />} />
-          <Route path="/medico" element={<MedicoRoute><MedicoPortalPage /></MedicoRoute>} />
-          <Route
-            path="/"
-            element={<PrivateRoute><DashboardLayout /></PrivateRoute>}
-          >
-            <Route index element={<Navigate to="/dashboard" replace />} />
-            <Route path="dashboard"  element={<DashboardHome />} />
-            <Route path="agenda"     element={<AgendaPage />} />
-            <Route path="pacientes"  element={<PacientesPage />} />
-            <Route path="nueva-cita" element={<NuevaCitaPage />} />
-            <Route path="medicos"    element={<MedicosPage />} />
-            <Route path="ventas"     element={<VentasPage />} />
-            <Route path="gastos"     element={<GastosPage />} />
-          </Route>
-          <Route path="*" element={<Navigate to="/login" replace />} />
-        </Routes>
-      </BrowserRouter>
-      <HabeasDataModal />
-    </AuthProvider>
+    <TenantProvider>
+      <AuthProvider>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/portal" element={<PortalPage />} />
+            <Route path="/medico" element={<MedicoRoute><MedicoPortalPage /></MedicoRoute>} />
+            <Route
+              path="/"
+              element={<PrivateRoute><DashboardLayout /></PrivateRoute>}
+            >
+              <Route index element={<Navigate to="/dashboard" replace />} />
+              <Route path="dashboard"  element={<DashboardHome />} />
+              <Route path="agenda"     element={<AgendaPage />} />
+              <Route path="pacientes"  element={<PacientesPage />} />
+              <Route path="nueva-cita" element={<NuevaCitaPage />} />
+              <Route path="medicos"    element={<FeatureRoute feature="medicos"><MedicosPage /></FeatureRoute>} />
+              <Route path="ventas"     element={<FeatureRoute feature="ventas"><VentasPage /></FeatureRoute>} />
+              <Route path="gastos"     element={<FeatureRoute feature="gastos"><GastosPage /></FeatureRoute>} />
+            </Route>
+            <Route path="*" element={<Navigate to="/login" replace />} />
+          </Routes>
+        </BrowserRouter>
+        <HabeasDataModal />
+      </AuthProvider>
+    </TenantProvider>
   );
 }
 

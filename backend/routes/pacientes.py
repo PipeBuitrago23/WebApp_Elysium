@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 from auth.jwt import require_admin
-from database import get_db
+from database import current_tenant_id, get_db
 from models.cita import Cita
 from models.paciente import Paciente
 from models.pago import Pago
@@ -70,7 +70,7 @@ def get_paciente(
     db: Session = Depends(get_db),
     _: dict = Depends(require_admin),
 ):
-    row = db.get(Paciente, paciente_id)
+    row = db.get(Paciente, (current_tenant_id.get(), paciente_id))
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paciente no encontrado")
     return row
@@ -82,9 +82,10 @@ def create_paciente(
     db: Session = Depends(get_db),
     _: dict = Depends(require_admin),
 ):
-    if db.get(Paciente, data.Paciente):
+    tenant_id = current_tenant_id.get()
+    if db.get(Paciente, (tenant_id, data.Paciente)):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Ya existe un paciente con ese ID")
-    row = Paciente(**data.model_dump())
+    row = Paciente(tenant_id=tenant_id, **data.model_dump())
     db.add(row)
     db.commit()
     db.refresh(row)
@@ -98,7 +99,7 @@ def update_paciente(
     db: Session = Depends(get_db),
     _: dict = Depends(require_admin),
 ):
-    row = db.get(Paciente, paciente_id)
+    row = db.get(Paciente, (current_tenant_id.get(), paciente_id))
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paciente no encontrado")
     for field, value in data.model_dump(exclude_unset=True).items():
@@ -115,7 +116,7 @@ def delete_paciente(
     db: Session = Depends(get_db),
     _: dict = Depends(require_admin),
 ):
-    row = db.get(Paciente, paciente_id)
+    row = db.get(Paciente, (current_tenant_id.get(), paciente_id))
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paciente no encontrado")
 

@@ -2,7 +2,7 @@ import os
 import warnings
 from datetime import datetime, timedelta
 from jose import jwt, JWTError
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 
 SECRET_KEY = os.getenv("JWT_SECRET_KEY", "")
@@ -29,15 +29,27 @@ def verify_token(token: str) -> dict:
     return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
 
 
-def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
+def get_current_user(request: Request, token: str = Depends(oauth2_scheme)) -> dict:
     try:
-        return verify_token(token)
+        payload = verify_token(token)
     except JWTError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token inválido o expirado",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    # The host resolved by TenantMiddleware is authoritative — the JWT's own
+    # tenant_id claim is only ever checked against it, never trusted alone.
+    # Same generic message as an invalid signature, so neither response
+    # leaks which case actually happened.
+    if payload.get("tenant_id") != getattr(request.state, "tenant_id", None):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token inválido o expirado",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return payload
 
 
 def require_admin(current_user: dict = Depends(get_current_user)) -> dict:

@@ -4,10 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, field_validator
 from sqlalchemy.orm import Session
 from auth.jwt import require_admin
-from database import get_db
+from core.constants import MAX_PASSWORD_BYTES
+from database import current_tenant_id, get_db
 from models.usuario import Usuario
-
-_MAX_PASSWORD_BYTES = 72
 
 
 # ── Schemas ──────────────────────────────────────────────────────────────────
@@ -20,7 +19,7 @@ class MedicoCreate(BaseModel):
     @field_validator("password")
     @classmethod
     def password_valida(cls, v: str) -> str:
-        if len(v.encode()) > _MAX_PASSWORD_BYTES:
+        if len(v.encode()) > MAX_PASSWORD_BYTES:
             raise ValueError("La contraseña es demasiado larga")
         if len(v) < 6:
             raise ValueError("La contraseña debe tener al menos 6 caracteres")
@@ -65,6 +64,7 @@ def create_medico(
     hashed = bcrypt.hashpw(data.password.encode(), bcrypt.gensalt()).decode()
     row = Usuario(
         id=str(uuid.uuid4()),
+        tenant_id=current_tenant_id.get(),
         email=data.email,
         hashed_password=hashed,
         nombre=data.nombre,

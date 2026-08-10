@@ -2,22 +2,25 @@ import { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { CalendarDays, KeyRound, LayoutDashboard, LogOut, PlusCircle, Receipt, Stethoscope, TrendingDown, Users, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useTenant } from '../context/TenantContext';
 import CambiarPasswordModal from './CambiarPasswordModal';
 
 const navItems = [
-  { to: '/dashboard', label: 'Inicio',      Icon: LayoutDashboard },
-  { to: '/agenda',    label: 'Agenda',       Icon: CalendarDays    },
-  { to: '/pacientes', label: 'Pacientes',    Icon: Users           },
-  { to: '/nueva-cita',label: 'Nueva Cita',   Icon: PlusCircle      },
-  { to: '/medicos',   label: 'Médicos',      Icon: Stethoscope     },
-  { to: '/ventas',    label: 'Ventas',       Icon: Receipt         },
-  { to: '/gastos',    label: 'Gastos',       Icon: TrendingDown    },
+  { to: '/dashboard', label: 'Inicio',      Icon: LayoutDashboard, feature: null       },
+  { to: '/agenda',    label: 'Agenda',       Icon: CalendarDays,    feature: null       },
+  { to: '/pacientes', label: 'Pacientes',    Icon: Users,           feature: null       },
+  { to: '/nueva-cita',label: 'Nueva Cita',   Icon: PlusCircle,      feature: null       },
+  { to: '/medicos',   label: 'Médicos',      Icon: Stethoscope,     feature: 'medicos'  },
+  { to: '/ventas',    label: 'Ventas',       Icon: Receipt,         feature: 'ventas'   },
+  { to: '/gastos',    label: 'Gastos',       Icon: TrendingDown,    feature: 'gastos'   },
 ];
 
 export default function Sidebar({ isOpen, onClose }) {
   const { user, logout } = useAuth();
+  const { tenant, hasFeature } = useTenant();
   const navigate = useNavigate();
   const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const visibleItems = navItems.filter((item) => !item.feature || hasFeature(item.feature));
 
   const handleLogout = () => {
     logout();
@@ -41,13 +44,15 @@ export default function Sidebar({ isOpen, onClose }) {
 
       {/* Brand */}
       <div className="px-6 py-5 border-b border-zinc-800">
-        <h1 className="text-lg font-light tracking-widest uppercase text-white">Elysium</h1>
-        <p className="text-[10px] text-zinc-500 uppercase tracking-widest mt-1">Fisioterapia & Pilates</p>
+        <h1 className="text-lg font-light tracking-widest uppercase text-white">{tenant.nombre_comercial}</h1>
+        <p className="text-[10px] text-zinc-500 uppercase tracking-widest mt-1">
+          {tenant.branding?.tagline || 'Fisioterapia & Pilates'}
+        </p>
       </div>
 
       {/* Navigation */}
       <nav className="flex-1 px-3 py-4 space-y-1">
-        {navItems.map(({ to, label, Icon }) => (
+        {visibleItems.map(({ to, label, Icon }) => (
           <NavLink
             key={to}
             to={to}

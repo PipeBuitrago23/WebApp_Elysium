@@ -1,29 +1,15 @@
-import axios from 'axios';
-
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-
-function authHeaders() {
-  const token = sessionStorage.getItem('elysium_token');
-  return { Authorization: `Bearer ${token}` };
-}
+import client from './client';
 
 export async function getVentas(params = {}) {
-  const { data } = await axios.get(`${API_URL}/ventas/`, {
-    headers: authHeaders(),
-    params,
-  });
+  const { data } = await client.get('/ventas/', { params });
   return data;
 }
 
 export async function createVenta(body) {
-  const { data } = await axios.post(`${API_URL}/ventas/`, body, {
-    headers: authHeaders(),
-  });
+  const { data } = await client.post('/ventas/', body);
   return data;
 }
 
 export async function deleteVenta(id) {
-  await axios.delete(`${API_URL}/ventas/${id}`, {
-    headers: authHeaders(),
-  });
+  await client.delete(`/ventas/${id}`);
 }

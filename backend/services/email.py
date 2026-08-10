@@ -353,11 +353,14 @@ def _send(to_email: str, subject: str, html: str) -> None:
         raise
 
 
-def _build_pago_html(nombre: str, venta) -> str:
+def _build_pago_html(nombre: str, venta, vigencia_dias: int) -> str:
     _MONTHS = ["enero","febrero","marzo","abril","mayo","junio",
                "julio","agosto","septiembre","octubre","noviembre","diciembre"]
     _DAYS   = ["lunes","martes","miércoles","jueves","viernes","sábado","domingo"]
-    fecha_fmt = f"{_DAYS[venta.fecha.weekday()]} {venta.fecha.day} de {_MONTHS[venta.fecha.month-1]} de {venta.fecha.year}"
+    if venta.fecha_pago:
+        fecha_fmt = f"{_DAYS[venta.fecha_pago.weekday()]} {venta.fecha_pago.day} de {_MONTHS[venta.fecha_pago.month-1]} de {venta.fecha_pago.year}"
+    else:
+        fecha_fmt = "Pendiente de pago"
 
     def cop(v):
         return f"${v:,.0f}".replace(",", ".")
@@ -366,7 +369,7 @@ def _build_pago_html(nombre: str, venta) -> str:
     vencimiento_row = ""
     vencimiento_block = ""
     if venta.total_sesiones:
-        venc = venta.fecha + timedelta(days=45)
+        venc = venta.fecha_inicio + timedelta(days=vigencia_dias)
         venc_fmt = f"{_DAYS[venc.weekday()]} {venc.day} de {_MONTHS[venc.month-1]} de {venc.year}"
         sesiones_row = f"""
           <tr>
@@ -386,7 +389,7 @@ def _build_pago_html(nombre: str, venta) -> str:
       <div style="background:#f0fdf4;border-radius:12px;padding:20px;margin-bottom:28px;border:1px solid #bbf7d0;">
         <p style="color:#15803d;font-size:12px;font-weight:700;margin:0 0 10px;text-transform:uppercase;letter-spacing:0.5px;">📅 Vigencia del plan</p>
         <p style="color:#166534;font-size:14px;margin:0;line-height:1.9;">
-          Tienes <strong>45 días</strong> para usar todas tus sesiones.<br>
+          Tienes <strong>{vigencia_dias} días</strong> para usar todas tus sesiones.<br>
           Tu plan vence el <strong>{venc_fmt}</strong>.<br>
           Pasada esta fecha, las sesiones no utilizadas no podrán recuperarse.
         </p>
@@ -469,9 +472,9 @@ def _build_pago_html(nombre: str, venta) -> str:
     return _base_template("Confirmación de pago – Elysium", content)
 
 
-def send_confirmacion_pago(nombre: str, email: str, venta) -> None:
+def send_confirmacion_pago(nombre: str, email: str, venta, vigencia_dias: int) -> None:
     try:
-        html = _build_pago_html(nombre, venta)
+        html = _build_pago_html(nombre, venta, vigencia_dias)
         _send(email, f"✅ Confirmación de pago – {venta.nombre_paquete}", html)
     except Exception:
         logger.exception("Error enviando confirmación de pago a %s", email)

@@ -5,6 +5,7 @@ import { getCitas } from '../api/citas';
 import { getPacientes } from '../api/pacientes';
 import { getPagos } from '../api/pagos';
 import { getVentas } from '../api/ventas';
+import CitaEstadoModal from '../components/CitaEstadoModal';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -153,6 +154,8 @@ export default function DashboardHome() {
   const [ventasMes, setVentasMes]       = useState([]);
   const [loading, setLoading]           = useState(true);
   const [error, setError]               = useState('');
+  const [reloadTick, setReloadTick]     = useState(0);
+  const [selectedCita, setSelectedCita] = useState(null);
 
   useEffect(() => {
     const ahora    = new Date();
@@ -186,7 +189,7 @@ export default function DashboardHome() {
       })
       .catch(() => setError('Error al cargar los datos del dashboard.'))
       .finally(() => setLoading(false));
-  }, []);
+  }, [reloadTick]);
 
   const breakdownHoy    = useMemo(() => countByTipo(citasHoy),    [citasHoy]);
   const breakdownSemana = useMemo(() => countByTipo(citasSemana), [citasSemana]);
@@ -462,7 +465,7 @@ export default function DashboardHome() {
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
           <h3 className="text-sm font-semibold text-slate-700">Citas de hoy</h3>
           <span className="text-xs text-slate-400">
-            {loading ? '…' : `${countHoy} cita${countHoy !== 1 ? 's' : ''}`}
+            {loading ? '…' : `${countHoy} cita${countHoy !== 1 ? 's' : ''} · clic para gestionar`}
           </span>
         </div>
 
@@ -487,7 +490,11 @@ export default function DashboardHome() {
               </thead>
               <tbody>
                 {citasHoySinCanceladas.map((c) => (
-                  <tr key={c.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60 transition-colors">
+                  <tr
+                    key={c.id}
+                    onClick={() => setSelectedCita(c)}
+                    className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60 transition-colors cursor-pointer"
+                  >
                     <td className="px-6 py-3.5 font-mono font-semibold text-slate-700">{c.hora.slice(0, 5)}</td>
                     <td className="px-6 py-3.5 text-slate-700">{pacientesMap[c.paciente_id] || c.paciente_id}</td>
                     <td className="px-6 py-3.5">
@@ -508,7 +515,11 @@ export default function DashboardHome() {
             {/* Mobile cards */}
             <div className="md:hidden divide-y divide-slate-50">
               {citasHoySinCanceladas.map((c) => (
-                <div key={c.id} className="px-4 py-3.5 flex items-center gap-3">
+                <div
+                  key={c.id}
+                  onClick={() => setSelectedCita(c)}
+                  className="px-4 py-3.5 flex items-center gap-3 cursor-pointer hover:bg-slate-50/60 transition-colors"
+                >
                   <div className="w-12 shrink-0 text-center">
                     <p className="font-bold font-mono text-slate-700 text-sm">{c.hora.slice(0, 5)}</p>
                   </div>
@@ -533,6 +544,15 @@ export default function DashboardHome() {
           </>
         )}
       </div>
+
+      {selectedCita && (
+        <CitaEstadoModal
+          cita={selectedCita}
+          pacientesMap={pacientesMap}
+          onClose={() => setSelectedCita(null)}
+          onUpdate={() => setReloadTick((t) => t + 1)}
+        />
+      )}
     </div>
   );
 }

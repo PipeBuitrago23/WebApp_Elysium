@@ -4,10 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, field_validator
 from sqlalchemy.orm import Session
 from auth.jwt import require_admin
-from database import get_db
+from core.constants import METODOS_PAGO
+from database import current_tenant_id, get_db
 from models.gasto import Gasto
-
-METODOS_PAGO = {"Efectivo", "Transferencia", "Tarjeta", "Otro"}
 
 router = APIRouter()
 
@@ -74,6 +73,7 @@ def create_gasto(
 ):
     row = Gasto(
         id=str(uuid.uuid4()),
+        tenant_id=current_tenant_id.get(),
         nombre=data.nombre,
         nit=data.nit,
         valor=data.valor,

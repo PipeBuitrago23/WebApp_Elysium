@@ -1,29 +1,15 @@
-import axios from 'axios';
-
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-
-function authHeaders() {
-  const token = sessionStorage.getItem('elysium_token');
-  return { Authorization: `Bearer ${token}` };
-}
+import client from './client';
 
 export async function getGastos(params = {}) {
-  const { data } = await axios.get(`${API_URL}/gastos/`, {
-    headers: authHeaders(),
-    params,
-  });
+  const { data } = await client.get('/gastos/', { params });
   return data;
 }
 
 export async function createGasto(body) {
-  const { data } = await axios.post(`${API_URL}/gastos/`, body, {
-    headers: authHeaders(),
-  });
+  const { data } = await client.post('/gastos/', body);
   return data;
 }
 
 export async function deleteGasto(id) {
-  await axios.delete(`${API_URL}/gastos/${id}`, {
-    headers: authHeaders(),
-  });
+  await client.delete(`/gastos/${id}`);
 }

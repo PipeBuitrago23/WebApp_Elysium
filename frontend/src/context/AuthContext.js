@@ -34,7 +34,7 @@ export function AuthProvider({ children }) {
   };
 
   const acceptHabeas = async () => {
-    await aceptarHabeasData(token);
+    await aceptarHabeasData();
     setUser((prev) => ({ ...prev, habeas_data_aceptado: true }));
   };
 

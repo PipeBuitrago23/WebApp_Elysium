@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useTenant } from '../context/TenantContext';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -8,6 +9,7 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const { login } = useAuth();
+  const { tenant } = useTenant();
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
@@ -29,8 +31,10 @@ export default function LoginPage() {
       <div className="w-full max-w-md">
 
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-light tracking-widest uppercase text-zinc-900">Elysium</h1>
-          <p className="text-zinc-400 mt-2 text-xs tracking-widest uppercase">Fisioterapia & Pilates</p>
+          <h1 className="text-3xl font-light tracking-widest uppercase text-zinc-900">{tenant.nombre_comercial}</h1>
+          <p className="text-zinc-400 mt-2 text-xs tracking-widest uppercase">
+            {tenant.branding?.tagline || 'Fisioterapia & Pilates'}
+          </p>
         </div>
 
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8">

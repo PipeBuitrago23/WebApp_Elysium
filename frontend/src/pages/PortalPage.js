@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useTenant } from '../context/TenantContext';
+import { buildSlots } from '../utils/schedule';
 import {
   getPortalPaciente,
   portalCrearCita,
@@ -14,16 +16,6 @@ import {
 
 const DAYS_ES   = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
 const MONTHS_ES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
-
-const VALID_SLOTS = [];
-for (let h = 7; h <= 11; h++) {
-  VALID_SLOTS.push(`${String(h).padStart(2, '0')}:00`);
-  if (h < 11) VALID_SLOTS.push(`${String(h).padStart(2, '0')}:30`);
-}
-for (let h = 14; h <= 18; h++) {
-  VALID_SLOTS.push(`${String(h).padStart(2, '0')}:00`);
-  if (h < 18) VALID_SLOTS.push(`${String(h).padStart(2, '0')}:30`);
-}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -156,7 +148,9 @@ function CitaCard({ cita, onCancelClick, onRescheduleClick }) {
 const SEMANAS_OPCIONES = [2, 3, 4, 6, 8];
 
 function BookingForm({ pacienteId, sinPlan, onSuccess, onCancel }) {
-  const [form, setForm]       = useState(() => ({ tipo: sinPlan ? 'Sesión de cortesía' : 'Pilates', fecha: '', hora: '' }));
+  const { servicios, horario } = useTenant();
+  const validSlots = buildSlots(horario);
+  const [form, setForm]       = useState(() => ({ tipo: sinPlan ? 'Sesión de cortesía' : (servicios[0]?.nombre || ''), fecha: '', hora: '' }));
   const [repetir, setRepetir] = useState(false);
   const [semanas, setSemanas] = useState(4);
   const [loading, setLoading] = useState(false);
@@ -222,7 +216,7 @@ function BookingForm({ pacienteId, sinPlan, onSuccess, onCancel }) {
               Tipo
             </label>
             <div className="flex gap-2">
-              {['Pilates', 'Fisioterapia'].map((t) => (
+              {servicios.map(({ nombre: t }) => (
                 <button
                   key={t}
                   type="button"
@@ -263,7 +257,7 @@ function BookingForm({ pacienteId, sinPlan, onSuccess, onCancel }) {
             className="w-full border border-slate-200 rounded-xl px-4 py-3 text-slate-800 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-zinc-500 focus:border-transparent"
           >
             <option value="">Selecciona la hora</option>
-            {VALID_SLOTS.map((s) => (
+            {validSlots.map((s) => (
               <option key={s} value={s}>{s}</option>
             ))}
           </select>
@@ -347,6 +341,8 @@ const EMPTY_RESCHEDULE = { open: false, cita: null, fecha: '', hora: '', loading
 
 export default function PortalPage() {
   const { user, logout, isAuthenticated } = useAuth();
+  const { tenant, horario } = useTenant();
+  const validSlots = buildSlots(horario);
   const navigate = useNavigate();
 
   const isAuthPatient = isAuthenticated && !!user?.paciente_id;
@@ -490,9 +486,9 @@ export default function PortalPage() {
     <div className="min-h-screen bg-slate-50">
       {/* Branding header */}
       <div className="bg-zinc-950 py-5 text-center">
-        <h1 className="text-lg font-light tracking-widest uppercase text-white">Elysium</h1>
+        <h1 className="text-lg font-light tracking-widest uppercase text-white">{tenant.nombre_comercial}</h1>
         <p className="text-[10px] text-zinc-400 uppercase tracking-widest mt-1">
-          Fisioterapia &amp; Pilates
+          {tenant.branding?.tagline || 'Fisioterapia & Pilates'}
         </p>
       </div>
 
@@ -531,7 +527,7 @@ export default function PortalPage() {
               <p className="text-red-600 text-sm text-center mt-4">{error}</p>
             )}
             <div className="mt-6 pt-5 border-t border-slate-100 text-center">
-              <p className="text-slate-400 text-xs mb-2">¿Primera vez en Elysium?</p>
+              <p className="text-slate-400 text-xs mb-2">¿Primera vez en {tenant.nombre_comercial}?</p>
               <button
                 onClick={() => { setShowRegister(true); setError(''); }}
                 className="text-zinc-600 hover:text-zinc-900 text-sm font-medium underline underline-offset-2"
@@ -689,14 +685,18 @@ export default function PortalPage() {
               </div>
             )}
 
-            {/* Plan */}
-            {paciente.plan_activo ? (
-              <PlanCard plan={paciente.plan_activo} />
+            {/* Plan(es) */}
+            {paciente.planes_activos.length > 0 ? (
+              <div className="space-y-3">
+                {paciente.planes_activos.map((plan) => (
+                  <PlanCard key={plan.tipo_paquete + plan.fecha_vencimiento} plan={plan} />
+                ))}
+              </div>
             ) : (
               <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 text-center">
                 <p className="font-semibold text-amber-800 mb-1">Sin plan activo</p>
                 <p className="text-amber-600 text-sm">
-                  Puedes agendar tu Sesión de cortesía. Cuando asistas, el equipo de Elysium te asignará un plan.
+                  Puedes agendar tu Sesión de cortesía. Cuando asistas, el equipo de {tenant.nombre_comercial} te asignará un plan.
                 </p>
               </div>
             )}
@@ -737,12 +737,12 @@ export default function PortalPage() {
                   onClick={() => { setBookingOpen(true); setSuccessMsg(''); }}
                   className="w-full py-3.5 bg-zinc-800 hover:bg-zinc-900 text-white font-semibold rounded-xl transition-all"
                 >
-                  {paciente.plan_activo ? 'Reservar nueva cita' : 'Agendar Sesión de cortesía'}
+                  {paciente.planes_activos.length > 0 ? 'Reservar nueva cita' : 'Agendar Sesión de cortesía'}
                 </button>
               ) : (
                 <BookingForm
                   pacienteId={paciente.paciente_id}
-                  sinPlan={!paciente.plan_activo}
+                  sinPlan={paciente.planes_activos.length === 0}
                   onSuccess={handleBookingSuccess}
                   onCancel={() => setBookingOpen(false)}
                 />
@@ -750,7 +750,7 @@ export default function PortalPage() {
             </div>
 
             <p className="text-xs text-slate-300 text-center pt-2">
-              Elysium Fisio-Pilates · Portal del Paciente
+              {tenant.nombre_comercial} · Portal del Paciente
             </p>
           </div>
         )}
@@ -814,7 +814,7 @@ export default function PortalPage() {
               </p>
               <p>
                 <span className="font-semibold text-slate-700">Responsable del Tratamiento:</span>{' '}
-                Elysium Fisio-Pilates, identificado con el NIT registrado en Cámara de Comercio, con domicilio en Colombia.
+                Estudio, identificado con el NIT registrado en Cámara de Comercio, con domicilio en Colombia.
               </p>
               <p>
                 <span className="font-semibold text-slate-700">Finalidad del Tratamiento:</span>{' '}
@@ -845,13 +845,13 @@ export default function PortalPage() {
               </p>
               <p>
                 <span className="font-semibold text-slate-700">Transferencia:</span>{' '}
-                Elysium Fisio-Pilates no compartirá, venderá ni cederá sus datos a terceros sin su
+                Estudio no compartirá, venderá ni cederá sus datos a terceros sin su
                 consentimiento previo, salvo obligación legal.
               </p>
               <p>
                 <span className="font-semibold text-slate-700">Contacto:</span>{' '}
                 Para ejercer sus derechos comuníquese a través de los canales de atención de
-                Elysium Fisio-Pilates.
+                Estudio.
               </p>
             </div>
             <div className="px-6 pb-5 pt-3 shrink-0 border-t border-slate-100">
@@ -899,7 +899,7 @@ export default function PortalPage() {
                   className="w-full border border-slate-200 rounded-xl px-4 py-3 text-slate-800 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-zinc-500 focus:border-transparent"
                 >
                   <option value="">Selecciona la hora</option>
-                  {VALID_SLOTS.map((s) => (
+                  {validSlots.map((s) => (
                     <option key={s} value={s}>{s}</option>
                   ))}
                 </select>

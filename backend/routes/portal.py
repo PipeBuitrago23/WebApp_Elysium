@@ -4,18 +4,18 @@ from datetime import date, datetime, time, timedelta
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.orm import Session
-from database import get_db
+from core.planes import plan_disponible
+from core.servicios import capacidad, descripcion_ventana, hora_valida, tipos_validos
+from database import current_tenant_id, get_db
 from limiter import limiter
+from middleware.tenant import get_current_tenant
 from models.cita import Cita
 from models.paciente import Paciente
 from models.pago import Pago
+from models.tenant import Tenant
 from services.email import send_confirmacion
 
-TIPOS_VALIDOS     = {"Fisioterapia", "Pilates", "Sesión de cortesía"}
-CAPACIDAD         = {"Fisioterapia": 2, "Pilates": 6, "Sesión de cortesía": 6}
-TURNOS            = ((time(7, 0), time(11, 0)), (time(14, 0), time(18, 0)))
 ESTADOS_TERMINAL  = {"completada", "cancelada", "No asistió con penalización"}
-HORAS_CANCELACION = 2
 
 router = APIRouter()
 
@@ -42,7 +42,7 @@ class CitaResumen(BaseModel):
 class PortalOut(BaseModel):
     paciente_id: str
     nombre: str
-    plan_activo: PlanOut | None
+    planes_activos: list[PlanOut]
     citas_proximas: list[CitaResumen]
 
 
@@ -52,21 +52,9 @@ class CitaPortalCreate(BaseModel):
     hora: time
     tipo: str
 
-    @field_validator("hora")
-    @classmethod
-    def hora_valida(cls, v: time) -> time:
-        if v.minute not in (0, 30) or v.second != 0:
-            raise ValueError("La hora debe ser :00 o :30")
-        if not any(ini <= v <= fin for ini, fin in TURNOS):
-            raise ValueError("Horario fuera de ventana permitida (07:00–11:00 · 14:00–18:00)")
-        return v
-
-    @field_validator("tipo")
-    @classmethod
-    def tipo_valido(cls, v: str) -> str:
-        if v not in TIPOS_VALIDOS:
-            raise ValueError("Tipo de cita inválido")
-        return v
+    # hora/tipo validity depend on the tenant's config (horario, servicios) —
+    # Pydantic validators run before a DB session or tenant exists, so those
+    # checks moved into portal_crear_cita()'s body instead.
 
 
 class CitaRecurrenteCreate(BaseModel):
@@ -76,21 +64,7 @@ class CitaRecurrenteCreate(BaseModel):
     tipo: str
     repeticiones: int = Field(ge=2, le=12)
 
-    @field_validator("hora")
-    @classmethod
-    def hora_valida(cls, v: time) -> time:
-        if v.minute not in (0, 30) or v.second != 0:
-            raise ValueError("La hora debe ser :00 o :30")
-        if not any(ini <= v <= fin for ini, fin in TURNOS):
-            raise ValueError("Horario fuera de ventana permitida (07:00–11:00 · 14:00–18:00)")
-        return v
-
-    @field_validator("tipo")
-    @classmethod
-    def tipo_valido(cls, v: str) -> str:
-        if v not in ("Fisioterapia", "Pilates"):
-            raise ValueError("Las citas recurrentes solo aplican para Fisioterapia o Pilates")
-        return v
+    # same as CitaPortalCreate — hora/tipo checked in the route body
 
 
 class CitaOmitida(BaseModel):
@@ -143,35 +117,28 @@ class ReprogramarCitaBody(BaseModel):
     fecha: date
     hora: time
 
-    @field_validator("hora")
-    @classmethod
-    def hora_valida(cls, v: time) -> time:
-        if v.minute not in (0, 30) or v.second != 0:
-            raise ValueError("La hora debe ser :00 o :30")
-        if not any(ini <= v <= fin for ini, fin in TURNOS):
-            raise ValueError("Horario fuera de ventana permitida (07:00–11:00 · 14:00–18:00)")
-        return v
+    # hora checked in the route body — see CitaPortalCreate
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.get("/paciente/{cedula}", response_model=PortalOut)
 def get_portal(cedula: str, db: Session = Depends(get_db)):
-    pac = db.get(Paciente, cedula)
+    pac = db.get(Paciente, (current_tenant_id.get(), cedula))
     if not pac:
         raise HTTPException(status_code=404, detail="No encontramos un paciente con esa cédula.")
 
     hoy = date.today()
 
-    plan = (
+    planes = (
         db.query(Pago)
         .filter(
             Pago.paciente_id == cedula,
             Pago.fecha_vencimiento >= hoy,
             Pago.sesiones_restantes > 0,
         )
-        .order_by(Pago.fecha_pago.desc())
-        .first()
+        .order_by(Pago.fecha_vencimiento.asc())
+        .all()
     )
 
     citas = (
@@ -189,7 +156,7 @@ def get_portal(cedula: str, db: Session = Depends(get_db)):
     return PortalOut(
         paciente_id=pac.Paciente,
         nombre=pac.nombre,
-        plan_activo=plan,
+        planes_activos=planes,
         citas_proximas=citas,
     )
 
@@ -197,7 +164,8 @@ def get_portal(cedula: str, db: Session = Depends(get_db)):
 @router.post("/registro", response_model=PortalOut, status_code=status.HTTP_201_CREATED)
 @limiter.limit("10/minute")
 def portal_registro(request: Request, data: RegistroCreate, db: Session = Depends(get_db)):
-    if db.get(Paciente, data.cedula):
+    tenant_id = current_tenant_id.get()
+    if db.get(Paciente, (tenant_id, data.cedula)):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Ya existe un perfil con esa cédula. Ingresa con tu número de cédula.",
@@ -208,6 +176,7 @@ def portal_registro(request: Request, data: RegistroCreate, db: Session = Depend
             detail="Ya existe un perfil con ese correo electrónico.",
         )
     pac = Paciente(
+        tenant_id=tenant_id,
         Paciente=data.cedula,
         nombre=data.nombre,
         telefono=data.telefono,
@@ -218,40 +187,48 @@ def portal_registro(request: Request, data: RegistroCreate, db: Session = Depend
     db.add(pac)
     db.commit()
     db.refresh(pac)
-    return PortalOut(paciente_id=pac.Paciente, nombre=pac.nombre, plan_activo=None, citas_proximas=[])
+    return PortalOut(paciente_id=pac.Paciente, nombre=pac.nombre, planes_activos=[], citas_proximas=[])
 
 
 @router.post("/citas", response_model=CitaResumen, status_code=status.HTTP_201_CREATED)
 @limiter.limit("10/minute")
-def portal_crear_cita(request: Request, data: CitaPortalCreate, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
-    if not db.get(Paciente, data.paciente_id):
+def portal_crear_cita(
+    request: Request,
+    data: CitaPortalCreate,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    tenant: Tenant = Depends(get_current_tenant),
+):
+    tenant_id = current_tenant_id.get()
+    if not db.get(Paciente, (tenant_id, data.paciente_id)):
         raise HTTPException(status_code=404, detail="Paciente no encontrado.")
 
+    tipos = tipos_validos(db, tenant)
+    if data.tipo not in tipos:
+        raise HTTPException(status_code=422, detail="Tipo de cita inválido")
+    if not hora_valida(tenant, data.hora):
+        raise HTTPException(
+            status_code=422, detail=f"Horario fuera de ventana permitida ({descripcion_ventana(tenant)})"
+        )
+
     if data.tipo == "Sesión de cortesía":
-        ya_tiene = (
+        max_por_paciente = tenant.get_config("sesion_cortesia.max_por_paciente")
+        usadas = (
             db.query(Cita)
             .filter(
                 Cita.paciente_id == data.paciente_id,
                 Cita.tipo == "Sesión de cortesía",
                 Cita.estado.notin_(["cancelada"]),
             )
-            .first()
+            .count()
         )
-        if ya_tiene:
+        if usadas >= max_por_paciente:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="Ya tienes una Sesión de cortesía registrada. Contacta a Elysium para adquirir un plan.",
+                detail="Ya tienes una Sesión de cortesía registrada. Contacta al estudio para adquirir un plan.",
             )
     else:
-        plan = (
-            db.query(Pago)
-            .filter(
-                Pago.paciente_id == data.paciente_id,
-                Pago.fecha_vencimiento >= data.fecha,
-                Pago.sesiones_restantes > 0,
-            )
-            .first()
-        )
+        plan = plan_disponible(db, data.paciente_id, data.tipo, data.fecha)
         if not plan:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -268,7 +245,8 @@ def portal_crear_cita(request: Request, data: CitaPortalCreate, background_tasks
         )
         .count()
     )
-    if ocupados >= CAPACIDAD[data.tipo]:
+    cap = capacidad(db, data.tipo)
+    if cap is None or ocupados >= cap:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Ese horario ya está lleno para {data.tipo}. Elige otro.",
@@ -276,6 +254,7 @@ def portal_crear_cita(request: Request, data: CitaPortalCreate, background_tasks
 
     row = Cita(
         id=str(uuid.uuid4()),
+        tenant_id=tenant_id,
         paciente_id=data.paciente_id,
         fecha=data.fecha,
         hora=data.hora,
@@ -286,13 +265,10 @@ def portal_crear_cita(request: Request, data: CitaPortalCreate, background_tasks
     db.commit()
     db.refresh(row)
 
-    pac = db.get(Paciente, data.paciente_id)
+    pac = db.get(Paciente, (tenant_id, data.paciente_id))
     if pac and pac.email:
-        email_plan = None if data.tipo == "Sesión de cortesía" else (
-            db.query(Pago)
-            .filter(Pago.paciente_id == data.paciente_id, Pago.sesiones_restantes > 0)
-            .order_by(Pago.fecha_pago.desc())
-            .first()
+        email_plan = None if data.tipo == "Sesión de cortesía" else plan_disponible(
+            db, data.paciente_id, data.tipo, date.today()
         )
         background_tasks.add_task(send_confirmacion, pac.nombre, pac.email, row, email_plan)
 
@@ -306,14 +282,28 @@ def portal_crear_cita_recurrente(
     data: CitaRecurrenteCreate,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
+    tenant: Tenant = Depends(get_current_tenant),
 ):
     """Agenda la misma cita semana a semana. Cada ocurrencia se valida por separado
     (plan vigente + cupo); las que no se puedan agendar se reportan en 'omitidas'
     en vez de abortar todo el lote.
     """
-    pac = db.get(Paciente, data.paciente_id)
+    tenant_id = current_tenant_id.get()
+    pac = db.get(Paciente, (tenant_id, data.paciente_id))
     if not pac:
         raise HTTPException(status_code=404, detail="Paciente no encontrado.")
+
+    # Recurring bookings never offer "Sesión de cortesía" — real servicios only.
+    tipos = tipos_validos(db, tenant, incluir_cortesia=False)
+    if data.tipo not in tipos:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Las citas recurrentes solo aplican para: {', '.join(sorted(tipos))}",
+        )
+    if not hora_valida(tenant, data.hora):
+        raise HTTPException(
+            status_code=422, detail=f"Horario fuera de ventana permitida ({descripcion_ventana(tenant)})"
+        )
 
     creadas: list[tuple[Cita, Pago]] = []
     omitidas: list[CitaOmitida] = []
@@ -321,15 +311,7 @@ def portal_crear_cita_recurrente(
     for i in range(data.repeticiones):
         fecha = data.fecha_inicio + timedelta(weeks=i)
 
-        plan = (
-            db.query(Pago)
-            .filter(
-                Pago.paciente_id == data.paciente_id,
-                Pago.fecha_vencimiento >= fecha,
-                Pago.sesiones_restantes > 0,
-            )
-            .first()
-        )
+        plan = plan_disponible(db, data.paciente_id, data.tipo, fecha)
         if not plan:
             omitidas.append(CitaOmitida(fecha=fecha, motivo="Tu plan no está vigente para esa fecha."))
             continue
@@ -344,12 +326,14 @@ def portal_crear_cita_recurrente(
             )
             .count()
         )
-        if ocupados >= CAPACIDAD[data.tipo]:
+        cap = capacidad(db, data.tipo)
+        if cap is None or ocupados >= cap:
             omitidas.append(CitaOmitida(fecha=fecha, motivo="Ese horario ya está lleno."))
             continue
 
         row = Cita(
             id=str(uuid.uuid4()),
+            tenant_id=tenant_id,
             paciente_id=data.paciente_id,
             fecha=fecha,
             hora=data.hora,
@@ -362,7 +346,7 @@ def portal_crear_cita_recurrente(
     if creadas:
         db.commit()
 
-    pac = db.get(Paciente, data.paciente_id)  # re-fetch fresh: prior commit expired it
+    pac = db.get(Paciente, (tenant_id, data.paciente_id))  # re-fetch fresh: prior commit expired it
     for row, plan in creadas:
         db.refresh(row)
         db.refresh(plan)
@@ -382,6 +366,7 @@ def portal_cancelar_cita(
     cita_id: str,
     data: CancelarCitaBody,
     db: Session = Depends(get_db),
+    tenant: Tenant = Depends(get_current_tenant),
 ):
     cita = db.get(Cita, cita_id)
     if not cita:
@@ -394,7 +379,8 @@ def portal_cancelar_cita(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Esta cita ya no puede modificarse.")
 
     cita_dt = datetime.combine(cita.fecha, cita.hora)
-    if datetime.now() >= cita_dt - timedelta(hours=HORAS_CANCELACION):
+    horas_cancelacion = tenant.get_config("ventana_cancelacion_horas")
+    if datetime.now() >= cita_dt - timedelta(hours=horas_cancelacion):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No es posible modificar o cancelar la cita con menos de 2 horas de anticipación. Por favor, comunícate con la recepción.",
@@ -413,6 +399,7 @@ def portal_reprogramar_cita(
     cita_id: str,
     data: ReprogramarCitaBody,
     db: Session = Depends(get_db),
+    tenant: Tenant = Depends(get_current_tenant),
 ):
     cita = db.get(Cita, cita_id)
     if not cita:
@@ -424,8 +411,14 @@ def portal_reprogramar_cita(
     if cita.estado in ESTADOS_TERMINAL:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Esta cita ya no puede modificarse.")
 
+    if not hora_valida(tenant, data.hora):
+        raise HTTPException(
+            status_code=422, detail=f"Horario fuera de ventana permitida ({descripcion_ventana(tenant)})"
+        )
+
     cita_dt = datetime.combine(cita.fecha, cita.hora)
-    if datetime.now() >= cita_dt - timedelta(hours=HORAS_CANCELACION):
+    horas_cancelacion = tenant.get_config("ventana_cancelacion_horas")
+    if datetime.now() >= cita_dt - timedelta(hours=horas_cancelacion):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No es posible modificar o cancelar la cita con menos de 2 horas de anticipación. Por favor, comunícate con la recepción.",
@@ -443,7 +436,8 @@ def portal_reprogramar_cita(
         )
         .count()
     )
-    if ocupados >= CAPACIDAD[cita.tipo]:
+    cap = capacidad(db, cita.tipo)
+    if cap is None or ocupados >= cap:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Ese horario ya está lleno para {cita.tipo}. Elige otro.",
@@ -451,15 +445,7 @@ def portal_reprogramar_cita(
 
     # Verify plan covers the new date (not required for courtesy sessions)
     if cita.tipo != "Sesión de cortesía":
-        plan = (
-            db.query(Pago)
-            .filter(
-                Pago.paciente_id == cita.paciente_id,
-                Pago.fecha_vencimiento >= data.fecha,
-                Pago.sesiones_restantes > 0,
-            )
-            .first()
-        )
+        plan = plan_disponible(db, cita.paciente_id, cita.tipo, data.fecha)
         if not plan:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
