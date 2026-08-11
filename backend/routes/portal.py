@@ -270,7 +270,7 @@ def portal_crear_cita(
         email_plan = None if data.tipo == "Sesión de cortesía" else plan_disponible(
             db, data.paciente_id, data.tipo, date.today()
         )
-        background_tasks.add_task(send_confirmacion, pac.nombre, pac.email, row, email_plan)
+        background_tasks.add_task(send_confirmacion, pac.nombre, pac.email, row, tenant, email_plan)
 
     return row
 
@@ -351,7 +351,7 @@ def portal_crear_cita_recurrente(
         db.refresh(row)
         db.refresh(plan)
         if pac and pac.email:
-            background_tasks.add_task(send_confirmacion, pac.nombre, pac.email, row, plan)
+            background_tasks.add_task(send_confirmacion, pac.nombre, pac.email, row, tenant, plan)
 
     return CitaRecurrenteOut(
         creadas=[CitaResumen.model_validate(row) for row, _ in creadas],

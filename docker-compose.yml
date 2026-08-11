@@ -57,8 +57,10 @@ services:
       - REACT_APP_API_URL=http://localhost:8000
       # Dev-only: localhost has no real subdomain, so this tells the backend
       # which tenant to resolve (TenantMiddleware honors X-Tenant-Slug only
-      # when RAILWAY_ENVIRONMENT != "production").
-      - REACT_APP_TENANT_SLUG=elysium
+      # when RAILWAY_ENVIRONMENT != "production"). See frontend/src/config/runtime.js.
+      - REACT_APP_DEV_TENANT_SLUG=elysium
+      # Only used outside localhost (see runtime.js) — harmless placeholder here.
+      - REACT_APP_BASE_DOMAIN=localhost
     volumes:
       - ./frontend:/app
       - /app/node_modules

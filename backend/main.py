@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import re
 import uuid
 import bcrypt
 from contextlib import asynccontextmanager
@@ -211,7 +212,7 @@ async def _job_recordatorios():
                             .order_by(Pago.fecha_vencimiento.asc())
                             .first()
                         )
-                        send_recordatorio(pac.nombre, pac.email, cita, plan)
+                        send_recordatorio(pac.nombre, pac.email, cita, tenant, plan)
                     cita.recordatorio_enviado = True
                 if pendientes:
                     db.commit()
@@ -258,14 +259,24 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-_origins_raw = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000")
-ALLOWED_ORIGINS = [o.strip() for o in _origins_raw.split(",")]
+# Local dev always gets an explicit origin (no real subdomain to regex-match
+# against). Every <slug>.<BASE_DOMAIN> origin is additionally allowed via
+# allow_origin_regex once BASE_DOMAIN is set — Starlette evaluates
+# allow_origins and allow_origin_regex together, not exclusively. Never
+# allow_origins=["*"]: that's incompatible with allow_credentials=True and
+# would accept any origin.
+_BASE_DOMAIN = os.getenv("BASE_DOMAIN", "")
+ALLOWED_ORIGINS = ["http://localhost:3000"]
+ALLOWED_ORIGIN_REGEX = (
+    rf"^https://[a-z0-9-]+\.{re.escape(_BASE_DOMAIN)}$" if _BASE_DOMAIN else None
+)
 
 app.add_middleware(TenantMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
+    allow_origin_regex=ALLOWED_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

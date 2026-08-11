@@ -216,7 +216,7 @@ def create_venta(
 
     if pac.email:
         vigencia_dias = tenant.get_config("vigencia_plan_dias")
-        background_tasks.add_task(send_confirmacion_pago, pac.nombre, pac.email, row, vigencia_dias)
+        background_tasks.add_task(send_confirmacion_pago, pac.nombre, pac.email, row, tenant, vigencia_dias)
 
     return _out(row, pac.nombre)
 

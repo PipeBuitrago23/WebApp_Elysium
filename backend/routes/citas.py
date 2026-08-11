@@ -247,7 +247,7 @@ def create_cita(
 
     pac = db.get(Paciente, (current_tenant_id.get(), data.paciente_id))
     if pac and pac.email:
-        background_tasks.add_task(send_confirmacion, pac.nombre, pac.email, row, plan)
+        background_tasks.add_task(send_confirmacion, pac.nombre, pac.email, row, tenant, plan)
 
     return _citas_out(db, [row])[0]
 

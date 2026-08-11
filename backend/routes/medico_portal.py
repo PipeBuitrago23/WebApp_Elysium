@@ -145,7 +145,7 @@ def crear_cita_medico(
     db.refresh(pac)
 
     if pac.email:
-        background_tasks.add_task(send_confirmacion, pac.nombre, pac.email, row, None)
+        background_tasks.add_task(send_confirmacion, pac.nombre, pac.email, row, tenant, None)
 
     return MedicoCitaOut(
         id=row.id,

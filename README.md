@@ -2,7 +2,7 @@
 
 Aplicación web para la gestión de citas, planes y pacientes de una clínica de fisioterapia y pilates. Incluye panel de administración completo y portal de autogestión para pacientes.
 
-> **En conversión a multi-tenant** (rama `feature/multi-tenant`, sobre `main`) — Fase 1 de 4 completa: capa de datos, Row-Level Security y sistema de configuración por tenant. Elysium sigue siendo el único tenant en la práctica, pero el stack completo ya es multi-tenant por debajo. Ver la sección "Multi-tenancy" más abajo.
+> **En conversión a multi-tenant** (rama `feature/multi-tenant`, sobre `main`) — Fase 1 de 4 completa: capa de datos, Row-Level Security y sistema de configuración por tenant. **Fase 2 (routing por subdominio) completa** — frontend resuelve la URL del backend y el tenant en runtime, backend rechaza slugs reservados/tenants suspendidos, CORS dinámico por subdominio, correos con branding real por tenant, y script `crear_tenant.py` para dar de alta un tenant sin SQL a mano. Elysium sigue siendo el único tenant en la práctica — falta conectar wildcard DNS real (Fase 3+) para que el esquema de subdominios funcione en producción. Ver la sección "Multi-tenancy" más abajo.
 
 ---
 
@@ -12,18 +12,19 @@ Aplicación web para la gestión de citas, planes y pacientes de una clínica de
 - Dashboard con métricas en tiempo real (citas hoy/semana/mes, pacientes activos/inactivos) + PieChart de ventas del mes por categoría
 - Agenda semanal con slots de 30 minutos, badges de capacidad y cambio de estado de citas
 - CRUD completo de pacientes (búsqueda, anamnesis, historial)
-- Registro de pagos/planes (Pilates o Fisioterapia, 45 días de vigencia, sesiones restantes)
+- Registro de pagos/planes (Pilates o Fisioterapia, 45 días de vigencia, sesiones restantes). Un paciente puede tener varios planes activos a la vez (distinto tipo, o una renovación comprada antes de vencer) — el consumo de sesiones elige automáticamente el que vence primero
 - Formulario de nueva cita con validación de capacidad por slot
-- **Módulo de Ventas (`/ventas`):** registro de ingresos por paquete con autofill de catálogo de precios, badge Pagado/Pendiente, abono y saldo en tiempo real; envía correo de confirmación de pago al paciente con desglose y fecha de vencimiento del plan (45 días)
+- Gestión de estado de cita (Agenda o Dashboard) con 5 acciones explícitas — Confirmar, Completada, No asistió, Reagendar, Cancelar sin descontar — sin conversión automática por horario (esa ventana solo aplica al portal del paciente)
+- **Módulo de Ventas (`/ventas`):** registro de ingresos por paquete con autofill de catálogo de precios, selector Pagó/Abonó/Pendiente, fecha de inicio del plan, abono y saldo en tiempo real; crea automáticamente el/los plan(es) de sesiones vinculados (sin pasar por Pacientes); envía correo de confirmación de pago al paciente con desglose y fecha de vencimiento del plan (45 días)
 - **Módulo de Gastos (`/gastos`):** registro de egresos con proveedor, NIT, método de pago y descripción
 
 ### Portal del Paciente
 - Acceso anónimo por número de cédula (flujo QR) o con email/contraseña
 - Auto-registro con nombre, cédula, teléfono y email
 - **Habeas Data (Ley 1581/2012):** checkbox de consentimiento obligatorio en el registro; modal de interceptación para usuarios existentes que no hayan aceptado aún, con texto legal completo de la Política de Privacidad
-- Vista del plan activo: tipo, sesiones restantes, barra de progreso, fecha de vencimiento
+- Vista de uno o más planes activos (una tarjeta por plan — puede tener Pilates y Fisioterapia a la vez): tipo, sesiones restantes, barra de progreso, fecha de vencimiento
 - Reserva de citas (o Sesión de cortesía si no tiene plan)
-- **Cancelación y reprogramación** de citas con restricción de 2 horas de anticipación
+- **Cancelación y reprogramación** de citas con restricción de 2 horas de anticipación (esta ventana es exclusiva del portal del paciente — el admin no está sujeto a ella)
 - Correo de confirmación automático al reservar
 
 ### Médicos Externos en Convenio (v2.0)
@@ -94,23 +95,24 @@ docker compose down -v
 |----------|-------------|---------|
 | `DATABASE_URL` | Cadena de conexión PostgreSQL | `postgresql://user:pass@host:5432/db` |
 | `JWT_SECRET_KEY` | Clave secreta para firmar tokens JWT | cadena aleatoria de 32+ chars |
-| `ALLOWED_ORIGINS` | URLs de frontend permitidas (CORS), separadas por coma | `https://mi-app.up.railway.app` |
 | `RESEND_API_KEY` | API key de Resend para envío de correos transaccionales | `re_xxxxxxxxxxxx` |
 | `RESEND_FROM` | Remitente (opcional) | `Elysium <hola@tudominio.com>` |
-| `PORTAL_URL` | URL pública del portal del paciente (usada en botones de correo) | `https://frontend.up.railway.app/portal` |
+| `PORTAL_URL` | Override explícito de la URL del portal en los correos (si no se configura, se arma con `BASE_DOMAIN` + el slug del tenant; si tampoco hay `BASE_DOMAIN`, cae a localhost) | `https://frontend.up.railway.app/portal` |
 | `CLINIC_MAPS_URL` | Link de Google Maps a la ubicación de la clínica | `https://share.google/EgQMvc66qfIIYYDZM` |
 | `RAILWAY_ENVIRONMENT` | Activa modo producción (deshabilita /docs) | `production` |
 | `APP_DATABASE_URL` | Conexión de la app en runtime como `app_user` (no-superusuario) — necesaria para que Row-Level Security restrinja algo. Sin ella cae a `DATABASE_URL` (admin) con un warning en el log. | `postgresql://app_user:pass@host:5432/db` |
+| `BASE_DOMAIN` | Dominio base real (Fase 2.4/2.5) — controla el `allow_origin_regex` de CORS (`https://<slug>.<BASE_DOMAIN>` queda permitido automáticamente) y el link de portal en los correos por tenant. Sin configurar, CORS solo permite `localhost:3000` y los correos caen al comportamiento anterior. Reemplaza a `ALLOWED_ORIGINS` (ya no se lee). | `elysium.app` |
 
 > **Correos:** Si `RESEND_API_KEY` no está configurada, los correos se registran en el log con nivel `WARNING` y **no se envían**. Railway bloquea el puerto SMTP 587, por eso se usa Resend API (HTTP) en lugar de Gmail SMTP.
 
 ### Frontend
 | Variable | Descripción | Ejemplo |
 |----------|-------------|---------|
-| `REACT_APP_API_URL` | URL pública del backend | `https://backend.up.railway.app` |
-| `REACT_APP_TENANT_SLUG` | Solo desarrollo — permite que `localhost` resuelva un tenant sin subdominio real (se manda como header `X-Tenant-Slug`) | `elysium` |
+| `REACT_APP_API_URL` | Solo desarrollo — URL del backend cuando se corre en `localhost` (fuera de `localhost`, la URL se deriva en runtime del propio hostname, ver `config/runtime.js`) | `http://localhost:8000` |
+| `REACT_APP_DEV_TENANT_SLUG` | Solo desarrollo (renombrada desde `REACT_APP_TENANT_SLUG` en la Fase 2.2) — permite que `localhost` resuelva un tenant sin subdominio real (se manda como header `X-Tenant-Slug`) | `elysium` |
+| `REACT_APP_BASE_DOMAIN` | Dominio base real, usado fuera de `localhost` para armar `https://<slug>.api.<REACT_APP_BASE_DOMAIN>` | `elysium.app` |
 
-> `REACT_APP_API_URL` se bake en el bundle en tiempo de build — debe configurarse como variable de build en Railway antes de redesplegar el frontend.
+> Desde la Fase 2.2, ninguna de estas variables se "hornea" en el bundle como URL fija — `config/runtime.js` las lee en runtime vía `window.location.hostname`, así que un solo build de producción sirve a cualquier tenant/subdominio.
 
 ---
 
@@ -130,20 +132,27 @@ Ambas cuentas se crean automáticamente en cada arranque si no existen (siempre 
 ```
 WebApp_Elysium/
 ├── backend/
-│   ├── main.py              # App factory · CORS · TenantMiddleware · lifespan (seeds + jobs asyncio por tenant)
+│   ├── main.py              # App factory · CORS dinámico (BASE_DOMAIN) · TenantMiddleware · lifespan (seeds + jobs asyncio por tenant)
 │   ├── database.py          # Engine SQLAlchemy (APP_DATABASE_URL) · SessionLocal · get_db() · current_tenant_id
 │   ├── alembic/             # Migraciones (0001 baseline · 0002 multi-tenant schema · 0003 Row-Level Security)
 │   ├── limiter.py           # Instancia compartida de slowapi
 │   ├── scripts/
-│   │   └── bootstrap_app_role.sql  # Crea el rol app_user que necesita RLS — correr una vez por ambiente
+│   │   ├── bootstrap_app_role.sql  # Crea el rol app_user que necesita RLS — correr una vez por ambiente
+│   │   └── crear_tenant.py  # CLI de alta de tenant (Fase 2.6) — tenant + 2 servicios + admin en una transacción,
+│   │                        #   valida slug contra RESERVED_SLUGS, --dry-run, imprime contraseña temporal
 │   ├── auth/
 │   │   └── jwt.py           # create_access_token · get_current_user (valida tenant_id del JWT) · require_admin · require_medico
 │   ├── core/
 │   │   ├── features.py      # PLAN_FEATURES · features_efectivas() · require_feature() — feature flags por plan
 │   │   ├── servicios.py     # capacidad() · tipos_validos() · hora_valida() — reemplaza los dicts hardcodeados
-│   │   └── constants.py     # METODOS_PAGO · MAX_PASSWORD_BYTES (deduplicados, no son config de tenant)
+│   │   ├── planes.py        # plan_disponible() · descontar_sesion() · crear_pago() — FIFO por fecha_vencimiento
+│   │   │                    #   cuando un paciente tiene 2+ planes activos del mismo tipo; compartido por
+│   │   │                    #   routes/pagos.py y routes/ventas.py
+│   │   └── constants.py     # METODOS_PAGO · MAX_PASSWORD_BYTES · RESERVED_SLUGS (deduplicados/reservas de
+│   │                        #   infraestructura, no son config de tenant)
 │   ├── middleware/
-│   │   └── tenant.py        # TenantMiddleware — resuelve el tenant por subdominio / X-Tenant-Slug (dev)
+│   │   └── tenant.py        # TenantMiddleware — resuelve el tenant por subdominio / X-Tenant-Slug (dev);
+│   │                        #   slug reservado o tenant suspendido → 404 igual que no encontrado (Fase 2.3)
 │   ├── models/
 │   │   ├── tenant.py        # Tenant · DEFAULT_CONFIG · get_config(ruta, default)
 │   │   ├── servicio.py      # Servicio por tenant: nombre, capacidad, duracion_min
@@ -158,18 +167,27 @@ WebApp_Elysium/
 │   │   ├── tenant.py        # GET /tenant/config — público: branding, features, servicios, horario
 │   │   ├── pacientes.py     # CRUD /pacientes/ — solo admin
 │   │   ├── citas.py         # CRUD /citas/ — solo admin · job penalización · medico_id/motivo_remision opcionales
-│   │   ├── pagos.py         # /pagos/ — solo admin
+│   │   │                    #   patch_estado ya no auto-penaliza por horario (5 acciones explícitas — ver arriba)
+│   │   ├── pagos.py         # /pagos/ — solo admin, vía core/planes.py:crear_pago()
 │   │   ├── portal.py        # /portal/* — público (tenant resuelto igual) · rate-limited 10/min · habeas requerido en registro
 │   │   ├── medicos.py       # /medicos/ — feature "medicos" + admin · crear/listar cuentas de médico en convenio
 │   │   ├── medico_portal.py # /medico/* — feature "medico_portal" + médico · agendar (sin plan requerido) + ver sus propias citas
-│   │   ├── ventas.py        # CRUD /ventas/ — feature "ventas" + admin · envía correo de pago al paciente al crear
+│   │   ├── ventas.py        # CRUD /ventas/ — feature "ventas" + admin · crea Pago(s) vinculado(s) vía core/planes.py
+│   │   │                    #   · envía correo de pago al paciente al crear
 │   │   └── gastos.py        # CRUD /gastos/ — feature "gastos" + admin
 │   └── services/
 │       └── email.py         # send_confirmacion · send_recordatorio · send_confirmacion_pago — Resend API (HTTP)
+│                            #   reciben el Tenant completo (Fase 2.5): nombre, color y URL de portal por tenant,
+│                            #   ya no hardcodeados a Elysium
 └── frontend/
     └── src/
+        ├── config/
+        │   └── runtime.js   # NUEVO (Fase 2.2) — deriva apiUrl/tenantSlug de window.location.hostname en
+        │                    #   runtime, no en build-time; en localhost cae a REACT_APP_API_URL /
+        │                    #   REACT_APP_DEV_TENANT_SLUG. Un solo build sirve a cualquier tenant.
         ├── api/
-        │   ├── client.js    # Instancia única de Axios — inyecta Authorization + X-Tenant-Slug (dev) en cada request
+        │   ├── client.js    # Instancia única de Axios — importa apiUrl/tenantSlug de config/runtime.js,
+        │   │                #   inyecta Authorization + X-Tenant-Slug (dev) en cada request
         │   ├── tenant.js    # getTenantConfig()
         │   └── ...          # auth, pacientes, citas, pagos, portal, medicos, medicoPortal, ventas, gastos (usan client.js)
         ├── constants/
@@ -180,17 +198,21 @@ WebApp_Elysium/
         ├── utils/
         │   └── schedule.js   # buildSlots(horario) — genera los horarios disponibles desde la config del tenant
         ├── components/      # Sidebar (filtrado por feature) · TopBar · PrivateRoute · MedicoRoute · FeatureRoute
+        │                    # CitaEstadoModal.js — extraído de AgendaPage.js, reusado por DashboardHome.js
         ├── layouts/         # DashboardLayout
         └── pages/
             ├── LoginPage.js
-            ├── DashboardHome.js      # + PieChart de ventas del mes por categoría (recharts)
-            ├── PacientesPage.js
+            ├── DashboardHome.js      # + PieChart de ventas del mes por categoría (recharts); tabla "Citas de
+            │                        #   hoy" interactiva vía CitaEstadoModal
+            ├── PacientesPage.js      # El modal ya no crea planes ("Agregar nuevo plan" se removió) — eso
+            │                        #   ahora solo pasa desde VentasPage.js
             ├── NuevaCitaPage.js
             ├── AgendaPage.js
-            ├── PortalPage.js
+            ├── PortalPage.js         # Una tarjeta de plan por cada plan activo (planes_activos es una lista)
             ├── MedicosPage.js        # Admin: gestión de médicos en convenio
             ├── MedicoPortalPage.js   # Portal del médico: mis citas + agendar nuevo paciente
-            ├── VentasPage.js         # Módulo de ingresos con autofill de catálogo y badges Pagado/Pendiente
+            ├── VentasPage.js         # Módulo de ingresos: autofill de catálogo, selector Pagó/Abonó/Pendiente,
+            │                        #   fecha de inicio del plan, badges Pagado/Pendiente
             └── GastosPage.js         # Módulo de egresos
 ```
 
@@ -244,9 +266,9 @@ WebApp_Elysium/
 
 > Desde la Fase 1 del multi-tenant, estos valores son la **configuración actual de Elysium** (`tenants.config`), no constantes globales — ver "Multi-tenancy" abajo para dónde vive cada uno.
 
-- **Vigencia del plan:** 45 días desde `fecha_pago` (`tenant.get_config("vigencia_plan_dias")`), calculado en el servidor.
-- **Descuento de sesiones:** Solo al marcar como `completada` o `No asistió con penalización` — no al reservar.
-- **Ventana de cancelación:** Libre si faltan > 2h (`tenant.get_config("ventana_cancelacion_horas")`). Dentro de la ventana → penalización automática.
+- **Vigencia del plan:** 45 días desde `fecha_inicio` — no `fecha_pago`, un cliente puede empezar el plan antes de terminar de pagarlo (`tenant.get_config("vigencia_plan_dias")`), calculado en el servidor vía `core/planes.py:crear_pago()`.
+- **Descuento de sesiones:** Solo al marcar como `completada` o `No asistió con penalización` — no al reservar. Si el paciente tiene 2+ planes activos del mismo tipo, se descuenta del que vence primero (`core/planes.py:plan_disponible`).
+- **Ventana de cancelación — solo portal del paciente:** Libre si faltan > 2h (`tenant.get_config("ventana_cancelacion_horas")`). Dentro de la ventana → penalización automática. El admin (Agenda/Dashboard) no está sujeto a esta ventana — elige explícitamente entre 5 acciones en `CitaEstadoModal.js`.
 - **Capacidad:** Pilates 6 pacientes/slot · Fisioterapia 2 pacientes/slot — tabla `servicios` por tenant, validado en backend (`core/servicios.py`).
 - **Sesión de cortesía:** Máximo una por paciente (excluye canceladas) — límite configurable (`sesion_cortesia.max_por_paciente`).
 - **Habeas Data (Ley 1581/2012):** `habeas_data_aceptado` requerido en registro. Usuarios existentes ven un modal de interceptación al iniciar sesión hasta aceptar. Se persiste con `fecha_aceptacion_habeas` en UTC. Texto legal **no** es dinámico por tenant todavía.
@@ -255,7 +277,7 @@ WebApp_Elysium/
 
 ---
 
-## Multi-tenancy (Fase 1 de 4)
+## Multi-tenancy (Fase 1 y 2 completas)
 
 Conversión de single-tenant a SaaS multi-tenant, en `feature/multi-tenant`. Fase 1 (capa de datos, contexto de tenant, config) está completa; Elysium sigue siendo el único tenant real hoy.
 
@@ -263,6 +285,20 @@ Conversión de single-tenant a SaaS multi-tenant, en `feature/multi-tenant`. Fas
 - **Aislamiento de datos:** las 6 tablas originales tienen `tenant_id`; `pacientes` pasó a PK compuesta `(tenant_id, "Paciente")` (la cédula puede repetirse entre tenants). Row-Level Security (Postgres) refuerza el aislamiento a nivel de base de datos — la app corre como el rol `app_user` (no-superusuario), nunca como el dueño de las tablas.
 - **Resolución de tenant:** por subdominio del header `Host`, o por header `X-Tenant-Slug` en desarrollo (`RAILWAY_ENVIRONMENT != production`). Sin tenant resuelto → `404` genérico.
 - **Plan y features:** `plan` (`basico` | `completo`) determina qué módulos están disponibles (`ventas`, `gastos`, `medicos`, `medico_portal`); `features_override` permite excepciones por tenant. `GET /tenant/config` expone esto al frontend.
+
+### Fase 2 — routing por subdominio (completa)
+
+Esquema objetivo (el código ya lo soporta; falta conectar DNS real, eso es Fase 3+): `<slug>.<BASE_DOMAIN>` para el frontend, `<slug>.api.<BASE_DOMAIN>` para el backend, `admin.<BASE_DOMAIN>` reservado para un futuro panel superadmin.
+
+- **2.2:** el frontend deriva `apiUrl`/`tenantSlug` de `window.location.hostname` en runtime (`frontend/src/config/runtime.js`) en vez de una variable de build — un solo build de producción sirve a cualquier tenant.
+- **2.3:** `RESERVED_SLUGS` (`core/constants.py`) nunca resuelve a un tenant real, y un tenant con `estado = "suspendido"` da 404 igual que uno inexistente (`TenantMiddleware`).
+- **2.4:** CORS dinámico — `allow_origin_regex` permite cualquier `https://<slug>.<BASE_DOMAIN>` automáticamente, sin listar cada tenant; `localhost:3000` se mantiene explícito para desarrollo.
+- **2.5:** los correos transaccionales (`services/email.py`) reciben el `Tenant` completo — nombre comercial, color de marca (`tenant.branding.color_primario`) y URL de portal (`<slug>.<BASE_DOMAIN>/portal`) ya no están hardcodeados a Elysium.
+- **2.6:** `backend/scripts/crear_tenant.py` da de alta un tenant nuevo (tenant + 2 servicios + admin) sin SQL a mano — ver más abajo.
+
+Ensayo de migración de datos reales (realizado, sin tocar producción): se restauró un dump de la base real de Railway (81 pacientes, 3 usuarios, 17 citas, 17 pagos, 12 ventas) en un entorno Docker aislado y desechable, y se corrieron las migraciones Alembic completas encima — encontró y corrigió un bug de idempotencia real en la migración `0004`. El entorno de ensayo fue destruido por completo al terminar; la base real de Railway nunca recibió una escritura.
+
+Detalle completo de las 5 sub-fases y su verificación: `CLAUDE.md` → sección "Multi-Tenancy → Phase 2".
 
 ### Bootstrap del rol `app_user` (una vez por ambiente)
 
@@ -273,17 +309,16 @@ docker compose exec -T db psql -U admin -d elysium_agenda < backend/scripts/boot
 ```
 En Railway: pegar el script en la consola del plugin de Postgres con una contraseña real generada para ese ambiente, y configurar `APP_DATABASE_URL` en el servicio backend.
 
-### Dar de alta un tenant nuevo (todavía manual)
+### Dar de alta un tenant nuevo
 
-```sql
-INSERT INTO tenants (id, slug, nombre_comercial, plan, estado, timezone, config)
-VALUES (gen_random_uuid(), 'nuevo-slug', 'Nombre Comercial', 'basico', 'activo', 'America/Bogota', '{}'::jsonb);
+```bash
+docker compose exec backend python scripts/crear_tenant.py \
+  --slug pilatesmed --nombre "Pilates Medellín" --plan completo \
+  --admin-email admin@pilatesmed.com --admin-nombre "Ana Ruiz"
 
-INSERT INTO servicios (tenant_id, nombre, capacidad, duracion_min, activo)
-VALUES ('<id del tenant>', 'Pilates', 6, 60, true),
-       ('<id del tenant>', 'Fisioterapia', 2, 60, true);
+# --dry-run valida (formato de slug, RESERVED_SLUGS, duplicados) sin escribir nada
 ```
-Después, crear un `Usuario` admin para ese tenant a mano (no hay script de seed para un segundo tenant todavía). No hay UI de administración de tenants — eso es Fase 2+.
+Crea el `Tenant`, sus 2 `servicios` por defecto (Pilates 6/60min, Fisioterapia 2/60min — mismos valores base que Elysium) y un `Usuario` admin en una sola transacción; imprime una contraseña temporal una sola vez (no se guarda en texto plano). No hay UI de administración de tenants todavía — eso es Fase 3+.
 
 Detalle completo (RLS, el gotcha de `SET LOCAL`, JWT↔tenant, etc.) está documentado en `CLAUDE.md`.
 
@@ -299,6 +334,8 @@ docker compose exec backend pytest tests/test_tenant_isolation.py -v
 
 ## Pendiente
 
-- [ ] **Fases 2–4 del multi-tenant** — UI de administración de tenants, wildcard DNS/subdominios reales, onboarding self-service, facturación
+- [ ] **Fases 3–4 del multi-tenant** — UI de administración de tenants, conectar wildcard DNS/subdominios reales (el código ya soporta el esquema desde la Fase 2), onboarding self-service, facturación
 - [ ] **Notificaciones WhatsApp** — n8n webhook → API de WhatsApp (Meta) · recordatorio 24h antes de la cita
 - [ ] Configurar `PORTAL_URL` en Railway apuntando al frontend para que el botón "Ver mi portal" en los correos lleve a la URL correcta en producción
+- [ ] Actualizar el Start Command del backend en Railway para incluir `alembic upgrade head` antes de `uvicorn` (cambio manual pendiente en el dashboard de Railway)
+- [ ] Reemplazar `main` en Railway con `feature/multi-tenant` para el cliente real — requiere su propio plan (backup, ventana de mantenimiento, Start Command)

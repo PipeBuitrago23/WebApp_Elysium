@@ -5,6 +5,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from core.constants import RESERVED_SLUGS
 from database import SessionLocal, current_tenant_id
 from models.tenant import Tenant
 
@@ -32,6 +33,13 @@ class TenantMiddleware(BaseHTTPMiddleware):
     3. Otherwise: 404 with a neutral message — never reveals whether a slug
        exists or not.
 
+    A slug in RESERVED_SLUGS (core/constants.py) is never looked up against
+    `tenants.slug` — those subdomains are reserved for infrastructure
+    (admin/api/www/...), not real tenants, regardless of what a stray row
+    might say. A tenant resolved with estado == "suspendido" is treated the
+    same as not-found (404) — a suspended tenant used to still resolve
+    correctly, which was a real gap.
+
     Sets request.state.tenant / request.state.tenant_id for the rest of the
     request, AND the `current_tenant_id` ContextVar (database.py) — the
     latter is what the SQLAlchemy engine's "begin" listener actually reads,
@@ -46,6 +54,8 @@ class TenantMiddleware(BaseHTTPMiddleware):
 
         host = (request.headers.get("host") or "").split(":")[0]
         slug = _subdomain_from_host(host)
+        if slug in RESERVED_SLUGS:
+            slug = None
 
         db = SessionLocal()
         try:
@@ -60,12 +70,12 @@ class TenantMiddleware(BaseHTTPMiddleware):
 
             if not tenant and os.getenv("RAILWAY_ENVIRONMENT") != "production":
                 header_slug = request.headers.get("x-tenant-slug")
-                if header_slug:
+                if header_slug and header_slug not in RESERVED_SLUGS:
                     tenant = db.query(Tenant).filter(Tenant.slug == header_slug).first()
         finally:
             db.close()
 
-        if not tenant:
+        if not tenant or tenant.estado == "suspendido":
             return JSONResponse(status_code=404, content={"detail": "No encontrado"})
 
         request.state.tenant = tenant

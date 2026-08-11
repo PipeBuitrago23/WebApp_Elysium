@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Elysium Fisio-Pilates** — appointment scheduling PWA for a single-location physiotherapy/pilates clinic. Access is primarily driven by scanning a QR Code or opening a direct link, guiding users to a lightweight registration screen.
 
-> **Multi-tenant conversion in progress (`feature/multi-tenant` branch, off `main`):** Phase 1 of 4 (data layer, tenant context, config system) is **complete** — see the "Multi-Tenancy" section below. Elysium is still the only tenant in practice, but every table is now tenant-scoped with Row-Level Security, and business rules (schedule window, plan validity, capacity, cancellation window) are per-tenant config instead of hardcoded. Not yet built: tenant admin UI, wildcard DNS / real subdomain routing, WhatsApp, self-service onboarding, billing — those are Phases 2–4.
+> **Multi-tenant conversion in progress (`feature/multi-tenant` branch, off `main`):** Phase 1 of 4 (data layer, tenant context, config system) is **complete**. **Phase 2 (subdomain routing) is complete** (2.2 frontend runtime URL/tenant resolution, 2.3 backend reserved-slug + suspended-tenant checks, 2.4 dynamic CORS, 2.5 per-tenant email branding, 2.6 `crear_tenant.py` onboarding script) — see "Multi-Tenancy" section below, in particular "Phase 2". Elysium is still the only tenant in practice, but every table is now tenant-scoped with Row-Level Security, business rules are per-tenant config instead of hardcoded, and the app is ready to actually route by subdomain once wildcard DNS is connected. Not yet built: tenant admin UI, wildcard DNS itself, WhatsApp, self-service onboarding, billing — those are Phases 3–4.
 
 ### User Roles & Permissions
 - **Admin / Staff (Fisioterapeuta):**
@@ -35,7 +35,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Admin and test patient are auto-seeded by `_seed_admin()` and `_seed_paciente()` in `main.py` on every startup — both resolve the Elysium tenant by slug first (still hardcoded to `"elysium"`, see Multi-Tenancy below) and no-op with a warning if it doesn't exist yet. There is no seeded médico account — create one from `/medicos` (Admin panel) or `POST /medicos/`.
 
-> **Tenant header required for every request:** since Phase 1, every backend request must resolve a tenant (`TenantMiddleware`) or it 404s — including `curl`/Swagger testing. Locally this happens automatically for the frontend (`REACT_APP_TENANT_SLUG=elysium` in `docker-compose.yml`), but manual API calls (`curl`, Postman, `/docs`) need `-H "X-Tenant-Slug: elysium"` explicitly.
+> **Tenant header required for every request:** since Phase 1, every backend request must resolve a tenant (`TenantMiddleware`) or it 404s — including `curl`/Swagger testing. Locally this happens automatically for the frontend (`REACT_APP_DEV_TENANT_SLUG=elysium` in `docker-compose.yml`, read via `frontend/src/config/runtime.js`), but manual API calls (`curl`, Postman, `/docs`) need `-H "X-Tenant-Slug: elysium"` explicitly.
 
 ## Core Business Rules & Policies
 
@@ -46,10 +46,11 @@ Admin and test patient are auto-seeded by `_seed_admin()` and `_seed_paciente()`
    - The expiration date must be automatically computed by the backend as exactly **45 calendar days** starting from the plan's **start date** (`fecha_inicio`), not the payment date.
    - Sessions can only be booked if the appointment date is less than or equal to the plan's expiration date.
 
-2. **Strict Cancellation & No-Show Policy (2-Hour Window):**
-   - Patients can freely cancel or reschedule an appointment from their panel **only if there are more than 2 hours remaining** before the appointment's start time.
+2. **Strict Cancellation & No-Show Policy (2-Hour Window) — patient portal only:**
+   - Patients can freely cancel or reschedule an appointment from their panel **only if there are more than 2 hours remaining** before the appointment's start time (`routes/portal.py`).
    - If a patient attempts to cancel within the 2-hour window, or fails to show up (No-Show), the system must mark the appointment status as `'No asistió con penalización'` and **automatically deduct 1 session** from their `sesiones_restantes`.
    - A background asyncio job runs every 5 minutes and auto-penalizes past appointments that were never resolved.
+   - **The admin is not subject to this window.** `PATCH /citas/{id}/estado` (used by Agenda/Dashboard) no longer auto-converts a `"cancelada"` request into a penalty based on timing — that auto-conversion was removed because it applied the patient's rule to admin actions too, which felt like the app was silently "deciding" for the admin. The admin now picks explicitly between 5 actions, all in `frontend/src/components/CitaEstadoModal.js`: Confirmar, Completada (descuenta), No asistió (descuenta — also the button to use for a late cancellation that should be penalized), Reagendar (no descuenta, via `ajuste-admin`), Cancelar sin descontar (no descuenta, via `ajuste-admin`).
 
 3. **Hourly Capacity Validation:**
    - The agenda must enforce strict slot limits per hour. The backend must validate available capacity before confirming any booking to prevent overbooking.
@@ -148,7 +149,8 @@ Three Docker containers (`docker-compose.yml`):
 ### Backend layout (`./backend/`)
 
 ```
-main.py              # App factory, CORS, TenantMiddleware, lifespan (seeds + per-tenant background jobs)
+main.py              # App factory, CORS (dynamic via BASE_DOMAIN — see Multi-Tenancy → Phase 2), TenantMiddleware,
+                     #   lifespan (seeds + per-tenant background jobs)
 database.py          # SQLAlchemy engine (APP_DATABASE_URL), SessionLocal, Base, get_db(), current_tenant_id
                      #   ContextVar + the engine "begin" listener that applies SET LOCAL app.tenant_id
 alembic/             # env.py + versions/ — schema migrations (see "Database Migrations" above)
@@ -160,9 +162,18 @@ core/
   features.py        # PLAN_FEATURES, features_efectivas(tenant), require_feature(nombre) router dependency
   servicios.py       # capacidad() / tipos_validos() / hora_valida() / descripcion_ventana() — tenant-aware
                      #   replacements for the old hardcoded CAPACIDAD/TURNOS/TIPOS_VALIDOS dicts
-  constants.py        # METODOS_PAGO, MAX_PASSWORD_BYTES — deduplicated, NOT tenant config (see Multi-Tenancy)
+  planes.py          # plan_disponible() / descontar_sesion() / crear_pago() — a patient can have 2+ active
+                     #   Pago at once (different tipo, or a renewal); plan_disponible matches by tipo_paquete
+                     #   exactly and, among several that qualify, picks the one expiring soonest (FIFO by
+                     #   fecha_vencimiento) so sessions don't go to waste on a plan about to lapse.
+                     #   crear_pago() is shared by routes/pagos.py and routes/ventas.py (a Venta with
+                     #   sesiones creates its Pago(s) through this same helper)
+  constants.py        # METODOS_PAGO, MAX_PASSWORD_BYTES, RESERVED_SLUGS — deduplicated / infra reservations,
+                     #   NOT tenant config (see Multi-Tenancy)
 middleware/
   tenant.py          # TenantMiddleware (subdomain → X-Tenant-Slug [non-prod] → 404) + get_current_tenant dep
+                     #   a RESERVED_SLUGS slug is never looked up; a resolved tenant with estado="suspendido"
+                     #   404s the same as not-found (Phase 2.3)
 models/
   tenant.py          # Tenant table + DEFAULT_CONFIG + Tenant.get_config(ruta, default) — see Multi-Tenancy
   servicio.py        # Servicio table — per-tenant service catalog (nombre, capacidad, duracion_min)
@@ -182,9 +193,13 @@ routes/
   pacientes.py       # Full CRUD /pacientes/ — require_admin
   citas.py           # Full CRUD /citas/ + background job procesar_citas_vencidas() — require_admin
                      #   CitaOut includes medico_id/medico_nombre/motivo_remision (resolved via _citas_out helper)
-                     #   create_cita skips the active-plan check when medico_id is set (referral citas)
+                     #   create_cita skips the active-plan check when medico_id is set (referral citas) or
+                     #   tipo is "Sesión de cortesía" (never backed by a Pago)
                      #   hora/tipo validity checked in the route body via core/servicios.py (not a Pydantic validator — see Multi-Tenancy)
-  pagos.py           # POST /pagos/ + GET /pagos/?paciente_id= — require_admin
+                     #   patch_estado: no time-window auto-penalty (admin picks the outcome explicitly — see
+                     #   Core Business Rule #2); descontar_sesion()/plan_disponible() come from core/planes.py
+  pagos.py           # POST /pagos/ (via core/planes.py:crear_pago) + GET /pagos/?paciente_id= — require_admin
+                     #   fecha_pago optional (nullable, migration 0005) — a plan can exist before it's paid
   portal.py          # Public (no JWT, but still tenant-resolved by TenantMiddleware): GET /portal/paciente/{cedula}
                      #   POST /portal/registro (nombre+cedula+telefono+email+habeas_data_aceptado REQUIRED true)
                      #   POST /portal/citas (new booking) · POST /portal/citas/recurrente
@@ -193,17 +208,35 @@ routes/
   medicos.py         # require_feature("medicos"): GET/POST /medicos/ (list/create Usuario with es_medico=True)
   medico_portal.py   # require_feature("medico_portal") + require_medico: GET /medico/citas (own referrals only) · POST /medico/citas
                      #   (find-or-create Paciente by cédula + create Cita with medico_id/motivo_remision, no plan check)
-  ventas.py          # require_feature("ventas") + require_admin: GET /ventas/ (filters: paciente_id, categoria, estado, fecha_desde, fecha_hasta)
-                     #   POST /ventas/ → validates paciente, abono ≤ valor_total, computes saldo+estado, triggers send_confirmacion_pago in background
-                     #   DELETE /ventas/{id}
+  ventas.py          # require_feature("ventas") + require_admin: GET /ventas/ (filters: paciente_id, categoria, estado, fecha_desde, fecha_hasta — the
+                     #   latter two now filter on fecha_pago; list ordered by fecha_inicio.desc(), never null unlike fecha_pago)
+                     #   POST /ventas/ → validates paciente, abono ≤ valor_total, computes saldo+estado, creates the linked Pago(s) from
+                     #   `planes` via core/planes.py:crear_pago() (see "Data model — ventas" above), triggers send_confirmacion_pago in background
+                     #   DELETE /ventas/{id} — does NOT cascade-delete the linked Pago(s); they're independent rows once created
   gastos.py          # require_feature("gastos") + require_admin: GET /gastos/ (date filters) · POST /gastos/ · DELETE /gastos/{id}
 services/
   email.py           # send_confirmacion · send_recordatorio · send_confirmacion_pago via Resend API (HTTP, no SMTP)
-                     #   reads RESEND_API_KEY + RESEND_FROM + PORTAL_URL + CLINIC_MAPS_URL at import time
+                     #   reads RESEND_API_KEY + RESEND_FROM + PORTAL_URL + BASE_DOMAIN + CLINIC_MAPS_URL at import time
                      #   send_confirmacion_pago: includes paquete, valor, abono, saldo, estado badge, 45-day expiry block (when total_sesiones set)
-                     #   logs WARNING (not sent) when RESEND_API_KEY missing — still single-tenant (global env vars), not yet per-tenant branding
+                     #   logs WARNING (not sent) when RESEND_API_KEY missing
+                     #   Phase 2.5: the 3 send_* functions take the full Tenant object — every literal
+                     #   "Elysium"/"Elysium Fisio-Pilates" interpolates tenant.nombre_comercial; _portal_url(slug)
+                     #   builds https://<slug>.<BASE_DOMAIN>/portal once BASE_DOMAIN is set (PORTAL_URL still wins
+                     #   as an explicit override, e.g. local dev); _brand_color(tenant) reads
+                     #   tenant.branding.color_primario (default "#27272a", matches what was already hardcoded on
+                     #   CTA buttons/card gradients — the header's separate fixed color, "#0f172a", was left
+                     #   untouched since it never shared the same literal, to guarantee zero visual change for
+                     #   Elysium). FROM_EMAIL/RESEND_API_KEY stay global on purpose (per-tenant sender domains are
+                     #   a billing/onboarding concern, out of scope)
 scripts/
   bootstrap_app_role.sql  # One-time per-environment: creates the app_user Postgres role RLS needs (see Multi-Tenancy)
+  crear_tenant.py    # Phase 2.6 — CLI to onboard a tenant: creates Tenant + 2 Servicio (Pilates/Fisioterapia,
+                     #   same base capacity/duration as Elysium) + admin Usuario in one transaction. Validates
+                     #   slug format, RESERVED_SLUGS, and duplicates before writing anything (--dry-run to just
+                     #   check). Connects with DATABASE_URL directly (own engine/session, not database.py) —
+                     #   never APP_DATABASE_URL, since a brand-new tenant has no RLS context yet and the
+                     #   non-superuser app_user connection would have its INSERTs silently rejected by RLS's
+                     #   WITH CHECK. Admin password: secrets.token_urlsafe(12), printed once, never logged.
 ```
 
 > **bcrypt note:** `passlib[bcrypt]` is installed but NOT used — passlib 1.7.4 is incompatible with bcrypt 4.x (raises ValueError on startup). All password hashing uses `import bcrypt` directly.
@@ -216,9 +249,16 @@ App.js                      # TenantProvider > AuthProvider > Routes + HabeasDat
                             #   HabeasDataModal: z-[100] backdrop-blur overlay for habeas_data_aceptado=false
                             #   PolicyContent: reusable legal text component (Ley 1581/2012) — NOT tenant-dynamic (see Multi-Tenancy)
 index.css                   # @tailwind base/components/utilities
+config/
+  runtime.js                 # NEW (Fase 2.2) — derives apiUrl/tenantSlug from window.location.hostname at
+                            #   runtime (not build time): on localhost, falls back to REACT_APP_API_URL /
+                            #   REACT_APP_DEV_TENANT_SLUG; otherwise apiUrl = https://<slug>.api.<REACT_APP_BASE_DOMAIN>,
+                            #   slug = the leftmost label of the browser's own hostname. One frontend build
+                            #   now serves every tenant — nothing tenant-specific is baked into the bundle.
 api/
-  client.js                 # Single axios instance — Authorization + X-Tenant-Slug (dev) injected via request interceptor.
-                            #   Every other api/*.js file imports this instead of raw axios + local API_URL/authHeaders()
+  client.js                 # Single axios instance — imports apiUrl/tenantSlug from config/runtime.js (not
+                            #   process.env directly); Authorization + X-Tenant-Slug (dev only) injected via
+                            #   request interceptor. Every other api/*.js file imports this instead of raw axios
   tenant.js                 # getTenantConfig() → GET /tenant/config
   auth.js                   # loginRequest() · aceptarHabeasData() · cambiarPassword() — no longer take a token param,
                             #   client.js's interceptor reads sessionStorage itself
@@ -254,25 +294,37 @@ components/
   MedicoRoute.js             # Checks isAuthenticated AND user.es_medico=true; else → /login
   FeatureRoute.js            # Checks hasFeature(feature); redirects to /dashboard if the tenant's plan lacks it
                             #   (wraps /medicos, /ventas, /gastos in App.js)
+  CitaEstadoModal.js         # Extracted from AgendaPage.js so DashboardHome.js's "Citas de hoy" table can
+                            #   reuse the exact same modal — 5 explicit actions (Confirmar/Completada/No
+                            #   asistió/Reagendar/Cancelar sin descontar), no auto-penalty by timing
 pages/
   LoginPage.js              # Login form — redirects to /dashboard (admin), /medico (médico), or /portal (patient)
   DashboardHome.js          # Real stats: citas hoy/semana/mes by tipo, pacientes activos/inactivos, próxima cita,
-                            #   "Citas de hoy" table shows médico remitente ("Directo" if none)
+                            #   "Citas de hoy" table shows médico remitente ("Directo" if none) — now INTERACTIVE:
+                            #   clicking a row opens CitaEstadoModal, same as AgendaPage; reloadTick re-fetches
                             #   PieChart (recharts donut) of current-month ventas by categoria
-  PacientesPage.js          # Searchable table + create/edit modal + delete confirm
+  PacientesPage.js          # Searchable table + create/edit modal + delete confirm. Modal is patient-data-only
+                            #   now — the old "Agregar nuevo plan" toggle was removed; plans are only created
+                            #   from VentasPage.js. The table itself still shows Plan/Sesiones/Vence per patient
+                            #   (read-only, one row per active plan — a patient can have 2+ at once)
   NuevaCitaPage.js          # Admin appointment booking form + optional "Médico en convenio" select + motivo_remision
                             #   tipo options + time slots from useTenant() (tiposCita/buildSlots), not hardcoded arrays
   AgendaPage.js             # Weekly view Lun–Sáb, slots from buildSlots(horario), capacity badges from useTenant().servicios,
-                            #   estado modal (shows médico remitente)
+                            #   estado modal is now the shared CitaEstadoModal component (shows médico remitente)
   PortalPage.js             # Patient self-service: cedula entry OR auto-load (if logged in),
-                            #   plan card + progress bar, upcoming citas with cancel/reschedule buttons,
+                            #   ONE plan card PER active plan (paciente.planes_activos is a list — a patient can
+                            #   have Pilates + Fisioterapia simultaneously, or a renewal bought before expiry),
+                            #   upcoming citas with cancel/reschedule buttons,
                             #   booking form (tipo/slots from useTenant()), self-register form (email + habeas checkbox + policy modal)
                             #   Habeas Data checkbox text + policy modal content are NOT tenant-dynamic (legal text, out of scope)
   MedicosPage.js            # Admin: table of médicos + "Nuevo médico" modal (nombre/email/password)
   MedicoPortalPage.js       # Médico self-service: "Mis pacientes/citas" tab + "Agendar nuevo paciente" tab
                             #   tipo options + slots from useTenant() (no cortesía — servicios never include it)
-  VentasPage.js             # Income module: NuevaVentaModal (patient search, categoria→paquete autofill, live saldo),
-                            #   PAID/PENDING badges, summary cards (total, ingresos mes, pendientes)
+  VentasPage.js             # Income module: NuevaVentaModal (patient search, categoria→paquete autofill, live saldo,
+                            #   Pagó/Abonó/Pendiente selector that toggles whether fecha_pago/abono are required,
+                            #   fecha_inicio field for the linked Pago(s), Combos auto-split into 2 planes entries)
+                            #   PAID/PENDING badges (pendiente now orange, not red — red is reserved for errors),
+                            #   summary cards (total, ingresos mes, pendientes)
   GastosPage.js             # Expense module: NuevoGastoModal (nombre, nit optional, valor, metodo_pago, descripcion)
 ```
 
@@ -323,7 +375,7 @@ pages/
 "programada"                    # default on creation
 "confirmada"
 "completada"                    # triggers sesiones_restantes decrement
-"cancelada"                     # free if > 2h before appointment
+"cancelada"                     # patient portal: free if > 2h before appointment. Admin (Agenda/Dashboard): always free, no time check.
 "No asistió con penalización"   # no-show or late cancel → deducts 1 session
 ```
 
@@ -339,9 +391,11 @@ Terminal states (`completada`, `cancelada`, `"No asistió con penalización"`) a
 | tipo_paquete | String | e.g. "Pilates", "Fisioterapia" |
 | total_sesiones | Integer | |
 | sesiones_restantes | Integer | decremented by backend only |
-| fecha_pago | Date | when the payment was registered — admin-provided, may lag `fecha_inicio` (e.g. paid in installments) |
-| fecha_inicio | Date | when the plan actually starts — admin-provided, independent of `fecha_pago` (added post-Phase-1, migration `0004`) |
+| fecha_pago | Date (nullable) | when the payment was registered — admin-provided, may lag `fecha_inicio` (e.g. paid in installments); **null while a linked `Venta` is still `pendiente`** (added migration `0005`) |
+| fecha_inicio | Date | when the plan actually starts — admin-provided, independent of `fecha_pago` |
 | fecha_vencimiento | Date | computed server-side: `fecha_inicio + tenant.get_config("vigencia_plan_dias")` (Elysium: 45 days) — **not** `fecha_pago` |
+
+A patient can have **more than one active `Pago` at once** (e.g. Pilates + Fisioterapia simultaneously, or a renewal bought before the old one expires) — see `core/planes.py` under Multi-Tenancy → "Business-rule constants" below for how booking/deduction picks which one applies.
 
 ### Data model — `ventas` table
 
@@ -352,13 +406,16 @@ Terminal states (`completada`, `cancelada`, `"No asistió con penalización"`) a
 | paciente_id | String | composite FK (tenant_id, paciente_id) → pacientes(tenant_id, "Paciente") |
 | nombre_paquete | String | e.g. "Plan Pro 8 Ses – Individual" |
 | categoria | String | Pilates \| Fisioterapia \| Combos \| Prendas de Vestir — billing catalog, not tenant config (see Multi-Tenancy) |
-| total_sesiones | Integer (nullable) | null for Prendas de Vestir |
+| total_sesiones | Integer (nullable) | null for Prendas de Vestir; for Combos this is the combined total (see `frontend/src/constants/packages.js`'s `split` field) |
 | valor_total | Float | |
-| abono | Float | amount paid up-front |
+| abono | Float | amount paid up-front — `0` when `estado_pago` was "Pendiente" in the admin form |
 | saldo | Float | computed: valor_total − abono |
-| fecha | Date | payment date (admin-provided) |
+| fecha_inicio | Date | when the plan starts — always required, drives the linked `Pago`'s `fecha_inicio` (migration `0005`, renamed/added alongside the `fecha`→`fecha_pago` change below) |
+| fecha_pago | Date (nullable) | payment date — **null when `estado` is `pendiente` with nothing paid yet** (renamed from `fecha`, migration `0005`) |
 | metodo_pago | String | Efectivo \| Transferencia \| Tarjeta \| Otro |
 | estado | String | pagada (saldo==0) \| pendiente (saldo>0) |
+
+**`POST /ventas/` creates the linked `Pago`(s) automatically** — the frontend sends a `planes: [{tipo_paquete, sesiones}, ...]` list (1 entry for a plain Pilates/Fisioterapia sale, 2 for a Combo split via each package's `split` field in `packages.js`, 0 for Prendas de Vestir); the backend validates each `tipo_paquete` against the tenant's real `servicios` and calls `core/planes.py:crear_pago()` for each one, using the venta's own `fecha_inicio`/`fecha_pago`. This replaced the old flow where an admin had to separately open Pacientes and manually "Agregar nuevo plan" with the same package info — that toggle no longer exists in `PacientesPage.js`.
 
 ### Data model — `gastos` table
 
@@ -468,7 +525,7 @@ FK checks always bypass RLS (documented Postgres behavior) — the composite FKs
 
 `/health` is exempt (deployment healthchecks have no tenant context). The resolved tenant lands on `request.state.tenant`/`request.state.tenant_id`; `middleware/tenant.py:get_current_tenant` is a FastAPI dependency (`tenant: Tenant = Depends(get_current_tenant)`) for routes that need `tenant.get_config(...)`.
 
-**Local dev:** the frontend sends `X-Tenant-Slug: elysium` on every request (`REACT_APP_TENANT_SLUG` env var, read by `frontend/src/api/client.js`'s axios interceptor).
+**Local dev:** the frontend sends `X-Tenant-Slug: elysium` on every request (`REACT_APP_DEV_TENANT_SLUG` env var, resolved by `frontend/src/config/runtime.js` and injected by `frontend/src/api/client.js`'s axios interceptor — see "Phase 2" below).
 
 ### JWT ↔ tenant binding
 
@@ -525,14 +582,34 @@ INSERT INTO servicios (tenant_id, nombre, capacidad, duracion_min, activo)
 VALUES ('<tenant id above>', 'Pilates', 6, 60, true),
        ('<tenant id above>', 'Fisioterapia', 2, 60, true);
 ```
-Then create an admin `Usuario` for that tenant by hand (`tenant_id` + `email` + bcrypt `hashed_password` + `es_admin=true`) — there's no seed script for a second tenant yet; `_seed_admin()`/`_seed_paciente()` in `main.py` are still hardcoded to Elysium. Locally, test the new tenant with `X-Tenant-Slug: nuevo-slug`.
+A second tenant no longer needs any of the manual SQL above — `backend/scripts/crear_tenant.py` does all three inserts (tenant + 2 servicios + admin Usuario) in one transaction (see "Phase 2 → 2.6" below). The manual SQL is kept here only as a reference for what the script actually does under the hood.
+
+### Phase 2 (subdomain routing) — complete
+
+Target domain scheme, once wildcard DNS is actually connected (not part of this phase — that's a Railway/DNS configuration step, not code): `<slug>.<BASE_DOMAIN>` for the frontend, `<slug>.api.<BASE_DOMAIN>` for the backend, `admin.<BASE_DOMAIN>` reserved for a future superadmin panel.
+
+**Correction to an earlier premise:** a `DEFAULT_TENANT_SLUG` "bridge" value was assumed to exist from Phase 1 and need removing — it never existed anywhere in the code (confirmed via a full-repo `grep`). The real underlying gap is that the backend's `Host` header never carries the tenant subdomain when frontend/backend are separate Railway services with no wildcard DNS wired up — that's a deploy/infra gap, not a hardcoded value to delete.
+
+- **2.2 — frontend runtime URL/tenant resolution:** `frontend/src/config/runtime.js` derives `apiUrl`/`tenantSlug` from `window.location.hostname` at runtime instead of a build-time env var. On `localhost`/`127.0.0.1` it falls back to `REACT_APP_API_URL`/`REACT_APP_DEV_TENANT_SLUG` (same behavior as before, just renamed); anywhere else, `tenantSlug` is the hostname's leftmost label and `apiUrl` is `https://<tenantSlug>.api.<REACT_APP_BASE_DOMAIN>`. `frontend/src/api/client.js` now imports from here instead of reading `process.env` directly — it's the only file that ever did. One frontend build now works for every tenant; nothing tenant-specific is baked into the bundle at build time.
+
+- **2.3 — backend host resolution:** `RESERVED_SLUGS` (`core/constants.py`: `admin`/`api`/`www`/`app`/`mail`/`static`) is never looked up against `tenants.slug` — whether the candidate came from the `Host` subdomain or the dev `X-Tenant-Slug` header — so those subdomains can never resolve to a tenant even if a stray row existed with that slug. A tenant resolved with `estado == "suspendido"` now 404s the same as not-found (`middleware/tenant.py`) — previously a suspended tenant still resolved and served requests normally, a real gap. `_subdomain_from_host` needed no logic change — it already took the leftmost label regardless of how many labels follow, so `<slug>.<BASE>` and `<slug>.api.<BASE>` both resolved correctly before this sub-phase too.
+
+- **2.4 — dynamic CORS:** `main.py` replaced the fixed `ALLOWED_ORIGINS` env var/list with `allow_origin_regex=rf"^https://[a-z0-9-]+\.{re.escape(BASE_DOMAIN)}$"` (only built when `BASE_DOMAIN` is set), alongside `allow_origins=["http://localhost:3000"]` kept explicit for local dev. Starlette evaluates `allow_origins` and `allow_origin_regex` together, not exclusively. Never `allow_origins=["*"]` (incompatible with `allow_credentials=True` anyway).
+
+- **2.5 — per-tenant email branding:** `services/email.py`'s `send_confirmacion`/`send_recordatorio`/`send_confirmacion_pago` now take the full `Tenant` object (not just name/slug — most call sites already had it in scope, and branding color needs the object too). Every literal "Elysium"/"Elysium Fisio-Pilates" interpolates `tenant.nombre_comercial`. New `_portal_url(tenant_slug)`: `PORTAL_URL` env var wins if set (explicit override, keeps local dev unchanged); otherwise builds `https://<slug>.<BASE_DOMAIN>/portal` once `BASE_DOMAIN` is set; falls back to `localhost:3000` before either is configured. New `_brand_color(tenant)` reads `tenant.branding.color_primario`, default `"#27272a"` — applied to CTA buttons and the card-gradient's first stop, the two spots that already hardcoded that exact value, so Elysium (unconfigured `branding`) renders pixel-identical to before. The base template's header background (`#0f172a`) was deliberately **not** themed — it's a different hardcoded literal than the buttons/cards, and reusing one shared default for both would have changed Elysium's actual header color; left alone until a real second color token is worth adding. `FROM_EMAIL`/`RESEND_API_KEY` stay global on purpose — per-tenant sender domains are a billing/onboarding concern, out of scope here.
+
+- **2.6 — tenant onboarding script:** `backend/scripts/crear_tenant.py` — `--slug`/`--nombre`/`--plan`/`--admin-email`/`--admin-nombre`/`--dry-run`. Validates slug format (`[a-z0-9-]{3,30}`), `RESERVED_SLUGS`, and duplicates before writing anything. Creates `Tenant` + 2 `Servicio` (Pilates 6/60min, Fisioterapia 2/60min — same base values as Elysium) + an admin `Usuario` in one transaction, with a `secrets.token_urlsafe(12)` temporary password printed once (never logged, never stored in plaintext). Connects with `DATABASE_URL` directly via its own engine/session — deliberately **not** `database.py` (whose engine is wired to `APP_DATABASE_URL` and the tenant-context "begin" listener, neither applicable here) and **not** `APP_DATABASE_URL` itself, since a brand-new tenant has no RLS context yet and the non-superuser `app_user` connection would have every INSERT silently rejected by the RLS policy's `WITH CHECK`.
+
+Full plan with verification steps for each sub-phase: `C:\Users\User_house\.claude\plans\sunny-puzzling-lovelace.md`.
 
 ### Environment variables added
 
 | Variable | Where | Purpose |
 |---|---|---|
 | `APP_DATABASE_URL` | backend | Runtime connection as `app_user` (non-superuser) — required for RLS to have any effect. Falls back to `DATABASE_URL` (admin, bypasses RLS) with a warning if unset. |
-| `REACT_APP_TENANT_SLUG` | frontend (dev only) | Lets `localhost` resolve a tenant without real subdomains — sent as `X-Tenant-Slug`. |
+| `REACT_APP_DEV_TENANT_SLUG` | frontend (dev only) | Renamed from `REACT_APP_TENANT_SLUG` in Phase 2.2. Lets `localhost` resolve a tenant without real subdomains — sent as `X-Tenant-Slug`. Read by `config/runtime.js`, not `client.js` directly anymore. |
+| `REACT_APP_BASE_DOMAIN` | frontend | Phase 2.2. The real base domain (e.g. `elysium.app`) used to build `https://<slug>.api.<REACT_APP_BASE_DOMAIN>` outside `localhost`. Currently a harmless placeholder (`localhost`) in `docker-compose.yml` since local dev never takes that code path. |
+| `BASE_DOMAIN` | backend | Phase 2.4/2.5. Drives the CORS `allow_origin_regex` (`main.py`) and the email `_portal_url()` fallback (`services/email.py`). Unset in local dev (`docker-compose.yml` doesn't set it for the backend) — CORS falls back to `localhost:3000`-only and emails fall back to the `PORTAL_URL`/localhost default, both unchanged from before Phase 2. |
 
 ## Current Status
 
@@ -558,13 +635,20 @@ Then create an admin `Usuario` for that tenant by hand (`tenant_id` + `email` + 
 - [x] **Médicos Externos en Convenio (v2.0):** `es_medico` role on `Usuario`; `medico_id`/`motivo_remision` on `Cita`; `routes/medicos.py` (admin CRUD) + `routes/medico_portal.py` (médico self-service, no active-plan requirement); `/medico` and `/medicos` frontend routes; médico remitente visible in `AgendaPage`/`DashboardHome`/`NuevaCitaPage`
 - [x] **Módulo financiero (Ventas + Gastos):** `models/venta.py` + `models/gasto.py`; `routes/ventas.py` + `routes/gastos.py` (require_admin); `VentasPage.js` (autofill catálogo, badges Pagado/Pendiente, abono/saldo live); `GastosPage.js`; PieChart en Dashboard (recharts donut, ventas del mes por categoría); `send_confirmacion_pago` con bloque de vigencia 45 días
 - [x] **Multi-tenancy — Fase 1 de 4 (`feature/multi-tenant`):** Alembic (revisiones `0001`–`0003`); `models/tenant.py` + `models/servicio.py`; `tenant_id` + claves compuestas en las 6 tablas originales; Row-Level Security + rol `app_user`; `TenantMiddleware` + `SET LOCAL` vía `ContextVar`/event listener; JWT con `tenant_id`; `core/features.py` (feature flags por plan) + `GET /tenant/config`; `core/servicios.py` (constantes de negocio → config por tenant); `TenantContext` + `FeatureRoute` + `api/client.js` en el frontend; `tests/test_tenant_isolation.py` (7 tests, `pytest`/`httpx` agregados a `requirements.txt`) — cubre los criterios de aceptación 1–7, y fue lo que encontró el gotcha del string vacío en la política RLS documentado arriba. Ver sección "Multi-Tenancy" arriba.
+- [x] **Migración de datos de producción ensayada:** dump/restore de la base real de Railway (81 pacientes, 3 usuarios, 17 citas, 17 pagos, 12 ventas) contra un entorno Docker completamente aislado y desechable, corriendo las migraciones Alembic 0001→0005 encima. Encontró y arregló un bug real de idempotencia en `0004` (ver su docstring). Cero escrituras contra la base real; todo el entorno de ensayo fue destruido al terminar.
+- [x] **Planes múltiples por paciente + vínculo Venta→Pago:** un paciente puede tener 2+ `Pago` activos a la vez (`core/planes.py`, selección FIFO por `fecha_vencimiento`); `POST /ventas/` crea su(s) `Pago` vinculado(s) automáticamente vía `planes: [...]`, reemplazando el flujo manual "Agregar nuevo plan" en Pacientes (removido de `PacientesPage.js`).
+- [x] **Ventana de cancelación solo aplica al portal del paciente:** `PATCH /citas/{id}/estado` (admin, vía `CitaEstadoModal.js`) ya no auto-convierte una cancelación en penalización por horario — el admin elige explícitamente entre 5 acciones (ver Regla de negocio #2).
+- [x] **Dashboard interactivo:** la tabla "Citas de hoy" de `DashboardHome.js` reutiliza `CitaEstadoModal.js` (extraído de `AgendaPage.js`) — clic en una fila abre el mismo modal de gestión de estado.
+- [x] **Multi-tenancy — Fase 2 completa (`feature/multi-tenant`):** 2.2 frontend deriva `apiUrl`/`tenantSlug` de `window.location.hostname` en runtime (`config/runtime.js`) — un solo build sirve a cualquier tenant; 2.3 `RESERVED_SLUGS` + chequeo de tenant `suspendido` en `TenantMiddleware`; 2.4 CORS dinámico vía `allow_origin_regex` sobre `BASE_DOMAIN`; 2.5 correos (`services/email.py`) reciben el `Tenant` completo — nombre, URL de portal y color de marca ya no están hardcodeados a Elysium; 2.6 `backend/scripts/crear_tenant.py` da de alta un tenant nuevo (tenant + 2 servicios + admin) en una transacción, sin SQL a mano. Ver "Multi-Tenancy → Phase 2" arriba para el detalle completo de cada sub-fase.
 
 **Next to build:**
-- [ ] **Fases 2–4 del multi-tenant:** UI de administración de tenants, wildcard DNS/subdominios reales, onboarding self-service, facturación
+- [ ] **Fases 3–4 del multi-tenant:** UI de administración de tenants, wildcard DNS/subdominios reales conectados (el código ya soporta el esquema, falta la infraestructura), onboarding self-service, facturación
 - [ ] `dashboard_metrics` feature flag no está aplicada todavía en `DashboardHome.js` (el PieChart de ventas es visible para cualquier plan)
 - [ ] `PortalPage.js`'s `canModify(cita)` sigue con 2h hardcodeado en vez de leer `useTenant()` (solo afecta cuándo se deshabilitan los botones en la UI — el backend ya usa `tenant.get_config`, así que no es un hueco de seguridad)
 - [ ] **Notificaciones WhatsApp** — n8n webhook → WhatsApp API (Meta) recordatorio 24h antes de la cita
 - [ ] Configurar `PORTAL_URL` en Railway apuntando al frontend (el correo de pago ya lo usa, pero el default es localhost)
+- [ ] Actualizar el Start Command del backend en Railway para incluir `alembic upgrade head` (ver "Database Migrations" arriba) — sigue pendiente el cambio manual en el dashboard
+- [ ] Eventualmente reemplazar `main` en Railway con `feature/multi-tenant` para el cliente real — requiere su propio plan (backup, ventana de mantenimiento, actualización del Start Command)
 
 ## Critical Design Rules
 
@@ -572,7 +656,7 @@ Then create an admin `Usuario` for that tenant by hand (`tenant_id` + `email` + 
 
 2. **Auth:** JWT via `python-jose`. Use `bcrypt` directly (not `passlib.CryptContext`). Token stored in `sessionStorage` under key `elysium_token`. JWT payload always includes `tenant_id` (str), `es_admin` (bool), `es_medico` (bool), `medico_id` (str | null), and `paciente_id` (str | null). Admin-only routes use `require_admin`; médico-only routes use `require_medico` (both in `auth/jwt.py`) — never bare `get_current_user` for role-gated routes. `get_current_user` also 401s if the JWT's `tenant_id` doesn't match the host-resolved tenant — see "Multi-Tenancy" above.
 
-3. **Plan expiration:** Always computed server-side as `fecha_inicio + timedelta(days=tenant.get_config("vigencia_plan_dias"))` (Elysium: 45) — **based on `fecha_inicio` (the plan's start date), not `fecha_pago` (the payment date)**, since a client may start a plan before finishing payment on it. Never accept `fecha_vencimiento` from the client, never hardcode the day count — read it from tenant config (`routes/pagos.py:create_pago`).
+3. **Plan expiration:** Always computed server-side as `fecha_inicio + timedelta(days=tenant.get_config("vigencia_plan_dias"))` (Elysium: 45) — **based on `fecha_inicio` (the plan's start date), not `fecha_pago` (the payment date)**, since a client may start a plan before finishing payment on it. Never accept `fecha_vencimiento` from the client, never hardcode the day count — read it from tenant config. Both `routes/pagos.py` and `routes/ventas.py` create `Pago` rows through the single shared `core/planes.py:crear_pago()` helper, so this rule only needs to be correct in one place.
 
 4. **Session deduction:** `sesiones_restantes` is decremented by the backend only — never by the frontend. Triggered on estado = `"completada"` or `"No asistió con penalización"`. Booking does NOT deduct (only checks availability).
 
@@ -586,13 +670,13 @@ Then create an admin `Usuario` for that tenant by hand (`tenant_id` + `email` + 
 
 9. **Schema migrations:** Every schema change is an Alembic revision (`backend/alembic/versions/`) — see "Database Migrations (Alembic)" above. `create_all`/`_run_migrations()` no longer exist; do not reintroduce ad hoc `ALTER TABLE` calls at startup.
 
-10. **Portal cancellation window:** Cancel and reschedule from the patient portal are blocked server-side when `datetime.now() >= cita_datetime - tenant.get_config("ventana_cancelacion_horas")` (Elysium: 2h). The frontend's `canModify(cita)` in `PortalPage.js` still hardcodes 2h to disable buttons early (a pre-Phase-1 shortcut, not yet wired to `useTenant()`) — the backend is the source of truth regardless, so this is a display-only staleness, not a security gap.
+10. **Portal cancellation window is patient-only:** Cancel and reschedule from the patient portal (`routes/portal.py`) are blocked server-side when `datetime.now() >= cita_datetime - tenant.get_config("ventana_cancelacion_horas")` (Elysium: 2h). The frontend's `canModify(cita)` in `PortalPage.js` still hardcodes 2h to disable buttons early (a pre-Phase-1 shortcut, not yet wired to `useTenant()`) — the backend is the source of truth regardless, so this is a display-only staleness, not a security gap. **The admin is exempt from this window entirely** — see Core Business Rule #2 and `CitaEstadoModal.js`'s 5 explicit actions; don't reintroduce a timing-based auto-penalty into `PATCH /citas/{id}/estado`, that was deliberately removed.
 
 11. **Habeas Data flow:** `habeas_data_aceptado` lives on both `Usuario` (for login-based users) and `Paciente` (for anonymous registrations). New patients: checkbox required in portal registration form (backend validates `habeas_data_aceptado=true`). Existing users: JWT carries the field; `HabeasDataModal` in `App.js` intercepts the UI when `user.habeas_data_aceptado === false` and calls `POST /auth/aceptar-habeas`. `acceptHabeas()` in `AuthContext` updates React state in-memory without requiring a re-login. Timestamp stored as UTC via `datetime.utcnow()`.
 
 12. **Email background task + ORM detachment:** When passing ORM objects to FastAPI `background_tasks.add_task()`, always call `db.refresh(obj)` on any object loaded **before** `db.commit()`. After commit, SQLAlchemy expires those objects' attributes; by the time the background task runs the session is already closed, causing a silent `DetachedInstanceError`. Objects loaded **after** `db.commit()` are fresh and safe to pass directly.
 
-13. **Médico referral citas skip the active-plan check:** A cita is a "referral" when `medico_id` is set (created via `POST /medico/citas` or `POST /citas/` with `medico_id`). These do **not** require an active `Pago` — the patient typically hasn't purchased a package yet. `_descuenta_sesion(db, paciente_id, required=...)` in `routes/citas.py` takes a `required` flag: `patch_estado` calls it with `required=(cita.medico_id is None)` so marking a referral cita as `completada`/no-show doesn't 422 when there's no plan — it just skips the deduction (same tolerant behavior `procesar_citas_vencidas` already had). When creating a `Paciente` and a `Cita` in the same request (see `medico_portal.py`), call `db.flush()` right after `db.add(paciente)` — there is no ORM `relationship()` between the two, so SQLAlchemy won't auto-order the inserts and the `Cita` insert will fail on the FK constraint if the `Paciente` row isn't flushed first.
+13. **Médico referral citas skip the active-plan check:** A cita is a "referral" when `medico_id` is set (created via `POST /medico/citas` or `POST /citas/` with `medico_id`) — same exemption as `tipo == "Sesión de cortesía"`, which is never backed by a `Pago` either (`plan_disponible`'s callers must not invoke it for that tipo — see its docstring). `core/planes.py:descontar_sesion(db, paciente_id, tipo, required=True)` takes a `required` flag: callers pass `required=False` for a referral/cortesía cita so marking it `completada`/no-show doesn't 422 when there's no plan — it just skips the deduction (same tolerant behavior `procesar_citas_vencidas` already had). When creating a `Paciente` and a `Cita` in the same request (see `medico_portal.py`), call `db.flush()` right after `db.add(paciente)` — there is no ORM `relationship()` between the two, so SQLAlchemy won't auto-order the inserts and the `Cita` insert will fail on the FK constraint if the `Paciente` row isn't flushed first.
 
 14. **Every new row needs `tenant_id`:** Any `Paciente(...)`, `Usuario(...)`, `Cita(...)`, `Pago(...)`, `Venta(...)`, or `Gasto(...)` constructor must set `tenant_id` explicitly (`current_tenant_id.get()` inside a route, or the resolved `Tenant.id` in a background job/seed) — it's `NOT NULL` with no default. Forgetting it isn't caught until the `INSERT` fails (either a `NOT NULL` violation, or — worse, silently — an RLS `WITH CHECK` rejection if `tenant_id` were somehow `NULL` and a policy comparison happened to let it through, which it won't, but don't rely on RLS to catch a missing tenant_id at the ORM layer).
 
