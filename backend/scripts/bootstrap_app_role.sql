@@ -49,3 +49,26 @@ GRANT SELECT, INSERT, UPDATE, DELETE
 -- No sequence grants needed: every PK here is either an app-side uuid4() or
 -- gen_random_uuid() (a pg_catalog function, executable by `public` by
 -- default) — nothing in this schema uses serial/identity columns.
+
+-- Covers tables a *future* Alembic migration adds (e.g. a new tenant-scoped
+-- table) so a schema change doesn't silently 403 the app at runtime until
+-- someone remembers to re-run this script and update the GRANT list above.
+-- Applies only to tables CREATED FROM NOW ON by whichever role executes this
+-- statement (the migration/table-owner role — `admin` locally, the Postgres
+-- plugin's owner role on Railway) — it does not retroactively grant on
+-- tables that already exist, which the explicit GRANT above already covers.
+-- Idempotent like every GRANT-family statement: safe to run twice. Assumes
+-- a future table follows the same tenant-scoped CRUD pattern as the 7
+-- above, not the `tenants` table's SELECT-only exception — if a future
+-- migration adds another table like `tenants`, revisit this.
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO app_user;
+
+-- Belt-and-braces: ON TABLES above does NOT cover a serial/identity column's
+-- backing sequence. Nothing in this schema uses one today (see the comment
+-- above), but if a future migration does, app_user would otherwise get a
+-- silent "permission denied for sequence ..." at runtime despite this
+-- script having already run — cheap to grant up front instead of waiting
+-- to discover it that way.
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+    GRANT USAGE, SELECT ON SEQUENCES TO app_user;

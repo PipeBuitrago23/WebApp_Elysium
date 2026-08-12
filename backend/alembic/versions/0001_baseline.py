@@ -4,10 +4,15 @@ This revision is a faithful, hand-written snapshot of the schema that
 `Base.metadata.create_all()` + the old `_run_migrations()` in main.py already
 produced in production. It is never actually executed there: the real
 production database is marked as already being on this revision with
-`alembic stamp head`, not `alembic upgrade head` — the tables already exist
-and must not be recreated. It exists so that (a) a brand-new dev/CI database
-can be built from nothing with plain `alembic upgrade head`, and (b) every
-later revision has a correct starting point to diff against.
+`alembic stamp 0001` (this exact revision — NOT `alembic stamp head`; head
+now points at the latest revision, e.g. 0005, and stamping head would mark
+production as already having every later revision's schema changes applied
+without ever actually running them, silently skipping 0002-000N against
+real data) — the tables already exist and must not be recreated. It exists
+so that (a) a brand-new dev/CI database can be built from nothing with
+plain `alembic upgrade head`, and (b) every later revision has a correct
+starting point to diff against. See docs/CUTOVER.md for the full cutover
+procedure this is a part of.
 
 Revision ID: 0001
 Revises:

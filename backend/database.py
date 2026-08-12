@@ -34,10 +34,26 @@ if DATABASE_URL.startswith("postgresql://"):
 # it reads DATABASE_URL directly in alembic/env.py, since migrations need
 # full DDL rights and must work before app_user/RLS exist at all.
 _APP_DATABASE_URL = os.getenv("APP_DATABASE_URL")
+_IS_PRODUCTION = os.getenv("RAILWAY_ENVIRONMENT") == "production"
+
 if _APP_DATABASE_URL:
     if _APP_DATABASE_URL.startswith("postgresql://"):
         _APP_DATABASE_URL = _APP_DATABASE_URL.replace("postgresql://", "postgresql+psycopg2://", 1)
     _RUNTIME_DATABASE_URL = _APP_DATABASE_URL
+elif _IS_PRODUCTION:
+    # In production this can't be a warning — silently falling back to
+    # DATABASE_URL means the app connects as the table owner/superuser,
+    # which bypasses Row-Level Security entirely (RLS never restricts a
+    # superuser or the table owner, regardless of FORCE ROW LEVEL SECURITY).
+    # That's a full cross-tenant data leak, not a degraded feature, so
+    # startup must abort rather than serve traffic in that state.
+    raise RuntimeError(
+        "APP_DATABASE_URL no configurada con RAILWAY_ENVIRONMENT=production. "
+        "Sin ella el backend conectaría como superusuario/dueño de las tablas y "
+        "Row-Level Security no protegería nada entre tenants. Configura "
+        "APP_DATABASE_URL con el rol app_user (ver backend/scripts/bootstrap_app_role.sql) "
+        "antes de arrancar en producción."
+    )
 else:
     logger.warning(
         "⚠️  APP_DATABASE_URL no configurada — el backend está conectando en runtime con "

@@ -260,13 +260,19 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Local dev always gets an explicit origin (no real subdomain to regex-match
-# against). Every <slug>.<BASE_DOMAIN> origin is additionally allowed via
-# allow_origin_regex once BASE_DOMAIN is set — Starlette evaluates
-# allow_origins and allow_origin_regex together, not exclusively. Never
-# allow_origins=["*"]: that's incompatible with allow_credentials=True and
-# would accept any origin.
+# against). ALLOWED_ORIGINS adds explicit origins on top — needed for
+# Railway today, where the real frontend still lives at a *.up.railway.app
+# URL, not yet <slug>.<BASE_DOMAIN>, so the regex below can't match it until
+# wildcard DNS is actually connected (Phase 3+). Every <slug>.<BASE_DOMAIN>
+# origin is additionally allowed via allow_origin_regex once BASE_DOMAIN is
+# set — Starlette evaluates allow_origins and allow_origin_regex together,
+# not exclusively. Never allow_origins=["*"]: that's incompatible with
+# allow_credentials=True and would accept any origin.
 _BASE_DOMAIN = os.getenv("BASE_DOMAIN", "")
-ALLOWED_ORIGINS = ["http://localhost:3000"]
+_EXTRA_ORIGINS_RAW = os.getenv("ALLOWED_ORIGINS", "")
+ALLOWED_ORIGINS = ["http://localhost:3000"] + [
+    o.strip() for o in _EXTRA_ORIGINS_RAW.split(",") if o.strip()
+]
 ALLOWED_ORIGIN_REGEX = (
     rf"^https://[a-z0-9-]+\.{re.escape(_BASE_DOMAIN)}$" if _BASE_DOMAIN else None
 )
