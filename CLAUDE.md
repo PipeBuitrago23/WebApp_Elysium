@@ -588,7 +588,7 @@ A second tenant no longer needs any of the manual SQL above — `backend/scripts
 
 Target domain scheme, once wildcard DNS is actually connected (not part of this phase — that's a Railway/DNS configuration step, not code): `<slug>.<BASE_DOMAIN>` for the frontend, `<slug>.api.<BASE_DOMAIN>` for the backend, `admin.<BASE_DOMAIN>` reserved for a future superadmin panel.
 
-**Correction to an earlier premise:** a `DEFAULT_TENANT_SLUG` "bridge" value was assumed to exist from Phase 1 and need removing — it never existed anywhere in the code (confirmed via a full-repo `grep`). The real underlying gap is that the backend's `Host` header never carries the tenant subdomain when frontend/backend are separate Railway services with no wildcard DNS wired up — that's a deploy/infra gap, not a hardcoded value to delete.
+**Correction to an earlier premise (superseded — see below):** a `DEFAULT_TENANT_SLUG` "bridge" value was assumed to exist from Phase 1 and need removing — at the time, it never existed anywhere in the code (confirmed via a full-repo `grep`). The real underlying gap was that the backend's `Host` header never carries the tenant subdomain when frontend/backend are separate Railway services with no wildcard DNS wired up — a deploy/infra gap, not a hardcoded value to delete. **This held only until the production cutover was scheduled to happen *before* wildcard DNS for the client's real domain — at that point `DEFAULT_TENANT_SLUG` was deliberately (re)introduced as a temporary bridge, see "DEFAULT_TENANT_SLUG — temporary cutover bridge" below.** Acceptance criterion #8 from the original Phase 2 brief (verified via a clean `grep -rn "DEFAULT_TENANT_SLUG" .`) no longer holds as originally stated, and won't again until wildcard DNS is connected and this bridge is retired (`docs/CUTOVER.md` has the explicit removal step).
 
 - **2.2 — frontend runtime URL/tenant resolution:** `frontend/src/config/runtime.js` derives `apiUrl`/`tenantSlug` from `window.location.hostname` at runtime instead of a build-time env var. On `localhost`/`127.0.0.1` it falls back to `REACT_APP_API_URL`/`REACT_APP_DEV_TENANT_SLUG` (same behavior as before, just renamed); anywhere else, `tenantSlug` is the hostname's leftmost label and `apiUrl` is `https://<tenantSlug>.api.<REACT_APP_BASE_DOMAIN>`. `frontend/src/api/client.js` now imports from here instead of reading `process.env` directly — it's the only file that ever did. One frontend build now works for every tenant; nothing tenant-specific is baked into the bundle at build time.
 
@@ -602,6 +602,39 @@ Target domain scheme, once wildcard DNS is actually connected (not part of this 
 
 Full plan with verification steps for each sub-phase: `C:\Users\User_house\.claude\plans\sunny-puzzling-lovelace.md`.
 
+### DEFAULT_TENANT_SLUG — temporary cutover bridge (added after Phase 2, not part of it)
+
+The production cutover (`docs/CUTOVER.md`) goes live **before** wildcard DNS
+for the client's real domain is connected — so the backend's real Railway
+host (e.g. `elysium-backend-production.up.railway.app`) never carries a
+tenant subdomain, and every request would 404 without some fallback. Added
+a 4th step to `TenantMiddleware.dispatch` (`middleware/tenant.py`), after
+the existing 3:
+
+1. `Host` subdomain / `custom_domain` match (unchanged, 2.3).
+2. `X-Tenant-Slug` header, non-production only (unchanged, 2.3).
+3. **`DEFAULT_TENANT_SLUG` env var** — only if set and steps 1-2 resolved
+   nothing. Deliberately **not** gated by `RAILWAY_ENVIRONMENT` — production
+   is exactly where it's needed, precisely because step 2 is disabled
+   there. Logs a `WARNING` every time it's used, including the `Host` that
+   failed to resolve, so it's visible in Railway logs when this bridge is
+   actually being exercised. A slug that doesn't exist or resolves to a
+   `suspendido` tenant just falls through to the same generic 404 as any
+   other miss — no exception. `RESERVED_SLUGS` does **not** apply to this
+   value — it's operator-set deployment config, not attacker-controlled
+   input like the `Host` header or `X-Tenant-Slug`.
+4. Otherwise: 404 (unchanged).
+
+**This is temporary and must be removed once wildcard DNS is actually
+connected** — leaving it configured after that point would mean any request
+that fails to resolve a real subdomain (e.g. a typo'd tenant slug) silently
+falls back to whichever tenant `DEFAULT_TENANT_SLUG` points at instead of a
+clean 404, which stops being a safety bridge and starts being a data
+mixup risk. `docs/CUTOVER.md` has an explicit "retirar DEFAULT_TENANT_SLUG"
+step for the DNS cutover phase. Tests: `tests/test_tenant_isolation.py`
+(fallback resolves when `Host` doesn't; 404 when unset; a real subdomain
+match still takes precedence over it).
+
 ### Environment variables added
 
 | Variable | Where | Purpose |
@@ -610,6 +643,7 @@ Full plan with verification steps for each sub-phase: `C:\Users\User_house\.clau
 | `REACT_APP_DEV_TENANT_SLUG` | frontend (dev only) | Renamed from `REACT_APP_TENANT_SLUG` in Phase 2.2. Lets `localhost` resolve a tenant without real subdomains — sent as `X-Tenant-Slug`. Read by `config/runtime.js`, not `client.js` directly anymore. |
 | `REACT_APP_BASE_DOMAIN` | frontend | Phase 2.2. The real base domain (e.g. `elysium.app`) used to build `https://<slug>.api.<REACT_APP_BASE_DOMAIN>` outside `localhost`. Currently a harmless placeholder (`localhost`) in `docker-compose.yml` since local dev never takes that code path. |
 | `BASE_DOMAIN` | backend | Phase 2.4/2.5. Drives the CORS `allow_origin_regex` (`main.py`) and the email `_portal_url()` fallback (`services/email.py`). Unset in local dev (`docker-compose.yml` doesn't set it for the backend) — CORS falls back to `localhost:3000`-only and emails fall back to the `PORTAL_URL`/localhost default, both unchanged from before Phase 2. |
+| `DEFAULT_TENANT_SLUG` | backend | **Temporary, cutover-only** (see above) — production fallback tenant slug used only when the `Host`/`X-Tenant-Slug` resolution fails. Not set in local dev. Must be removed once wildcard DNS is connected — `docs/CUTOVER.md` has the removal step. |
 
 ## Current Status
 

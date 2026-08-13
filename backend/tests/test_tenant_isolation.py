@@ -3,6 +3,10 @@ the multi-tenant plan (RLS isolation, cross-tenant JWT rejection, feature
 flags, cross-tenant uniqueness). Criteria 8-9 (production dump migration,
 alembic downgrade) are verified manually, not here — see CLAUDE.md.
 
+Also covers the DEFAULT_TENANT_SLUG fallback added for the production
+cutover (temporary bridge until wildcard DNS for dimanik.com is connected —
+see docs/CUTOVER.md and middleware/tenant.py's docstring).
+
 Requires a real Postgres with RLS applied (alembic head) and the app_user
 role bootstrapped (backend/scripts/bootstrap_app_role.sql) — RLS cannot be
 tested against SQLite. Run inside the backend container, where DATABASE_URL
@@ -238,3 +242,45 @@ def test_same_cedula_and_email_across_two_tenants_do_not_collide(two_tenants):
             text('SELECT count(*) FROM pacientes WHERE "Paciente" = :ced'), {"ced": "900000777"}
         ).scalar()
     assert count == 2
+
+
+# ── DEFAULT_TENANT_SLUG fallback — temporary cutover bridge, see docs/CUTOVER.md ──
+# "xxx-production.up.railway.app" stands in for the backend's real Railway
+# host: 3+ labels, so _subdomain_from_host treats "xxx-production" as a
+# slug candidate, but no tenant is ever named that — the lookup always
+# misses, exactly like the real pre-wildcard-DNS cutover scenario this
+# fallback exists for.
+_UNRESOLVABLE_HOST = "xxx-production.up.railway.app"
+
+
+def test_default_tenant_slug_resolves_when_host_does_not(client, monkeypatch):
+    with admin_engine.begin() as conn:
+        tid = _make_tenant(conn, f"test-default-{uuid.uuid4().hex[:8]}")
+        slug = conn.execute(text("SELECT slug FROM tenants WHERE id = :tid"), {"tid": tid}).scalar()
+    try:
+        monkeypatch.setenv("DEFAULT_TENANT_SLUG", slug)
+        resp = client.get("/tenant/config", headers={"Host": _UNRESOLVABLE_HOST})
+        assert resp.status_code == 200
+        assert resp.json()["nombre_comercial"] == slug
+    finally:
+        with admin_engine.begin() as conn:
+            _delete_tenant(conn, tid)
+
+
+def test_no_default_tenant_slug_returns_404_when_host_does_not_resolve(client, monkeypatch):
+    monkeypatch.delenv("DEFAULT_TENANT_SLUG", raising=False)
+    resp = client.get("/tenant/config", headers={"Host": _UNRESOLVABLE_HOST})
+    assert resp.status_code == 404
+
+
+def test_valid_host_subdomain_takes_precedence_over_default_tenant_slug(client, monkeypatch, two_tenants):
+    with admin_engine.begin() as conn:
+        slug_a = conn.execute(text("SELECT slug FROM tenants WHERE id = :tid"), {"tid": two_tenants["a"]}).scalar()
+        slug_b = conn.execute(text("SELECT slug FROM tenants WHERE id = :tid"), {"tid": two_tenants["b"]}).scalar()
+
+    # DEFAULT_TENANT_SLUG points at tenant B, but the Host resolves to
+    # tenant A via a real subdomain — A must win.
+    monkeypatch.setenv("DEFAULT_TENANT_SLUG", slug_b)
+    resp = client.get("/tenant/config", headers={"Host": f"{slug_a}.api.test.com"})
+    assert resp.status_code == 200
+    assert resp.json()["nombre_comercial"] == slug_a

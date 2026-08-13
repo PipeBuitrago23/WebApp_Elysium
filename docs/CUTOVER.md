@@ -21,6 +21,15 @@ y que no hay trabajo pendiente sin comitear.
 | CORS | `ALLOWED_ORIGINS` (lista fija, coma-separada) | `ALLOWED_ORIGINS` (mismo formato, se sigue soportando) + `allow_origin_regex` opcional vía `BASE_DOMAIN` para cuando haya subdominios reales |
 | Tenant | Implícito (una sola clínica) | Explícito — todo dato queda bajo el tenant `elysium`, creado por la migración `0002` |
 
+> **Este cutover pasa a producción antes de tener wildcard DNS conectado**
+> (dominios de `dimanik.com` — eso es Fase 3+). Sin subdominio real, el
+> `Host` que le llega al backend (`elysium-backend-production.up.railway.app`
+> o similar) nunca resuelve a un tenant, así que este cutover depende de
+> `DEFAULT_TENANT_SLUG` (ver paso 6 y la sección 11) como puente
+> **temporal** — sin él, el cliente real quedaría sin servicio (404 en
+> todo) apenas se despliegue. Retirarlo es un paso propio, más abajo, para
+> cuando el DNS esté listo — no es parte de este cutover.
+
 Referencia de la configuración actual real de Railway (proyecto, IDs de
 servicio, Start Command, env vars vigentes hoy): `DEPLOY_NOTES.md` en la
 raíz del repo — fue el runbook del primer despliegue de `main` y describe el
@@ -144,6 +153,7 @@ contenedor real de producción.)
 | `RAILWAY_ENVIRONMENT` | Verificar que ya esté en `production` | Railway la setea sola normalmente; confirmarla — de ella depende el fallo duro de `APP_DATABASE_URL` y el bloqueo de `/docs` |
 | `ALLOWED_ORIGINS` | Ya existe, dejar como está | `https://webappelysium-production.up.railway.app,https://marvelous-illumination-production-a83b.up.railway.app` (o los dominios reales vigentes) — se sigue leyendo igual que antes, sumado ahora a `localhost:3000` internamente |
 | `BASE_DOMAIN` | **No configurar todavía** | Solo tiene sentido una vez haya wildcard DNS real apuntando a Railway (Fase 3+). Configurarla antes de tener esos subdominios no rompe nada (`ALLOWED_ORIGINS` sigue cubriendo el frontend real), pero tampoco aporta nada todavía |
+| `DEFAULT_TENANT_SLUG` | **Agregar — `elysium`** | **Obligatoria para este cutover, TEMPORAL.** Sin `Host` real que resuelva a un tenant (no hay wildcard DNS todavía), toda petición 404earía sin este fallback — ver `middleware/tenant.py` y `CLAUDE.md` → "DEFAULT_TENANT_SLUG — temporary cutover bridge". Cada vez que se use, queda un `WARNING` en los logs de Railway con el `Host` que no resolvió — revisar esos logs después del deploy para confirmar que efectivamente se está usando (y para tener una señal de cuándo dejar de necesitarla). **Retirar esta variable en la Fase 11 (DNS), no antes** |
 | `JWT_SECRET_KEY` | Sin cambios | |
 | `RESEND_API_KEY` / `RESEND_FROM` | Verificar que sigan configuradas | Si no lo están, los correos quedan en modo log (no se envían) — mismo comportamiento de siempre, no bloquea el arranque |
 | `PORTAL_URL` | **Agregar si no existe** | Apuntar al frontend real (`https://marvelous-illumination-production-a83b.up.railway.app/portal` o el dominio vigente) — sin esto, el link "Ver mi portal" de los correos apunta a `localhost:3000` en producción. Ya estaba pendiente antes de este cutover (ver `CLAUDE.md` → "Next to build") |
@@ -182,17 +192,26 @@ después `Uvicorn running on...`.
 
 ## 9. Verificación post-deploy
 
+**Importante:** con `RAILWAY_ENVIRONMENT=production`, el header
+`X-Tenant-Slug` está deshabilitado a propósito (`middleware/tenant.py`, paso
+2) — en producción real la resolución depende del `Host` o, mientras no haya
+DNS real, de `DEFAULT_TENANT_SLUG`. No mandar `X-Tenant-Slug` en estas
+pruebas: no haría nada, y si por error se prueba así y "funciona", puede dar
+una falsa sensación de que el fallback de `DEFAULT_TENANT_SLUG` está andando
+cuando en realidad no se ejercitó.
+
 ```bash
 # Health check
 curl -s https://<backend-real>/health
 # → {"status":"ok"}
 
-# Tenant resuelve (dev header, mientras no haya subdominio real)
-curl -s https://<backend-real>/tenant/config -H "X-Tenant-Slug: elysium"
+# Tenant resuelve VÍA DEFAULT_TENANT_SLUG (el Host real de Railway no
+# resuelve a ningún tenant todavía — sin X-Tenant-Slug, sin subdominio)
+curl -s https://<backend-real>/tenant/config
 # → nombre_comercial, features, servicios, horario reales de Elysium
 
-# Login admin real sigue funcionando
-curl -s -X POST https://<backend-real>/auth/login -H "X-Tenant-Slug: elysium" \
+# Login admin real sigue funcionando (misma resolución vía DEFAULT_TENANT_SLUG)
+curl -s -X POST https://<backend-real>/auth/login \
   -d "username=admin@elysium.com&password=<password real>"
 # → JWT con tenant_id de elysium
 
@@ -205,6 +224,7 @@ curl -s https://<backend-real>/citas/ -H "Authorization: Bearer <token>" | jq le
 - [ ] Un paciente real puede ver su portal (`/portal`, cédula real).
 - [ ] `pytest` corrido contra este ambiente si es posible, o al menos localmente contra el mismo commit antes de desplegar.
 - [ ] Revisar logs del backend por cualquier `WARNING`/`ERROR` inesperado en los primeros minutos (jobs de recordatorio/penalización corriendo, ausencia de excepciones de RLS).
+- [ ] Confirmar en los Deploy Logs que aparece el `WARNING` de `TenantMiddleware` usando `DEFAULT_TENANT_SLUG` — si no aparece, algo más (¿un `custom_domain` viejo? ¿un tenant llamado igual que el host?) está resolviendo el tenant por otra vía, vale la pena entender cuál antes de dar el cutover por cerrado.
 
 ## 10. Rollback
 
@@ -233,6 +253,39 @@ docstring de esa migración) — no usarlo como plan de rollback una vez haya
 un segundo tenant real; a partir de ahí, restaurar backup es el único
 camino seguro.
 
+## 11. Cuando el wildcard DNS esté conectado — retirar `DEFAULT_TENANT_SLUG`
+
+**Esta fase es posterior al cutover de este documento** — se ejecuta cuando
+el wildcard DNS de `dimanik.com` (o el dominio real que se termine usando)
+ya apunta a Railway y `elysium.<dominio>` resuelve de verdad al frontend, y
+`elysium.api.<dominio>` al backend. No hacerlo antes: sin subdominio real
+funcionando, retirar `DEFAULT_TENANT_SLUG` deja al cliente sin servicio,
+exactamente el problema que esta variable existe para evitar.
+
+1. Confirmar que el `Host` real ya resuelve sin el fallback — pegarle al
+   backend con el subdominio real y **sin** `DEFAULT_TENANT_SLUG` de por
+   medio (probar primero en un ambiente que no sea el de producción real,
+   si es posible, o revisar los logs después de un deploy de prueba):
+   ```bash
+   curl -s https://elysium.api.<dominio real>/tenant/config
+   # → debe responder 200 con los datos de Elysium, SIN el WARNING de
+   #   TenantMiddleware en los logs (si aparece el WARNING, el Host
+   #   todavía no está resolviendo solo — no retirar la variable aún)
+   ```
+2. Configurar `BASE_DOMAIN` (backend) y `REACT_APP_BASE_DOMAIN` (frontend)
+   con el dominio real — ver `CLAUDE.md` → "Environment variables added".
+3. En Railway: servicio backend → Variables → eliminar `DEFAULT_TENANT_SLUG`
+   por completo (no dejarla vacía — el código chequea `if default_slug:`,
+   pero es más limpio que no exista).
+4. Redeploy y repetir la verificación del paso 1 — sin `DEFAULT_TENANT_SLUG`
+   configurada, un `Host` que no resuelve debe volver a dar 404 genérico
+   (`tests/test_tenant_isolation.py::test_no_default_tenant_slug_returns_404_when_host_does_not_resolve`
+   cubre este caso, pero vale confirmarlo también contra el ambiente real).
+5. Actualizar `CLAUDE.md`: quitar la sección "DEFAULT_TENANT_SLUG —
+   temporary cutover bridge" (o marcarla como retirada) y restaurar el
+   criterio de aceptación #8 original de la Fase 2 (`grep -rn
+   "DEFAULT_TENANT_SLUG" .` debe volver a no encontrar nada).
+
 ## Notas / referencias
 
 - Detalle completo de RLS, el gotcha del string vacío en la política, `SET
@@ -244,3 +297,6 @@ camino seguro.
   producción, en un entorno completamente aislado y desechable: ver
   `CLAUDE.md` → "Current Status" → "Migración de datos de producción
   ensayada".
+- Detalle completo del fallback `DEFAULT_TENANT_SLUG` (por qué existe, por
+  qué es temporal, qué prueban los tests): `CLAUDE.md` → "Multi-Tenancy" →
+  "DEFAULT_TENANT_SLUG — temporary cutover bridge".
