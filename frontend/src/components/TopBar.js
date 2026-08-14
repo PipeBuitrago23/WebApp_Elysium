@@ -1,5 +1,6 @@
 import { useLocation } from 'react-router-dom';
 import { Menu } from 'lucide-react';
+import { useTenant } from '../context/TenantContext';
 
 const titles = {
   '/dashboard':  'Inicio',
@@ -13,7 +14,8 @@ const titles = {
 
 export default function TopBar({ onMenuClick }) {
   const { pathname } = useLocation();
-  const title = titles[pathname] ?? 'Elysium';
+  const { tenant } = useTenant();
+  const title = titles[pathname] ?? tenant.nombre_comercial;
 
   return (
     <header className="h-14 bg-white border-b border-slate-200 flex items-center px-4 md:px-6 shrink-0 gap-3">

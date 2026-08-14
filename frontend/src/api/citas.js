@@ -1,11 +1,4 @@
-import axios from 'axios';
-
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-
-function authHeaders() {
-  const token = sessionStorage.getItem('elysium_token');
-  return { Authorization: `Bearer ${token}` };
-}
+import client from './client';
 
 export async function getCitas({ fecha, fecha_desde, fecha_hasta, paciente_id, estado } = {}) {
   const params = {};
@@ -14,54 +7,35 @@ export async function getCitas({ fecha, fecha_desde, fecha_hasta, paciente_id, e
   if (fecha_hasta) params.fecha_hasta = fecha_hasta;
   if (paciente_id) params.paciente_id = paciente_id;
   if (estado) params.estado = estado;
-  const { data } = await axios.get(`${API_URL}/citas/`, {
-    headers: authHeaders(),
-    params,
-  });
+  const { data } = await client.get('/citas/', { params });
   return data;
 }
 
 export async function getCita(id) {
-  const { data } = await axios.get(`${API_URL}/citas/${id}`, {
-    headers: authHeaders(),
-  });
+  const { data } = await client.get(`/citas/${id}`);
   return data;
 }
 
 export async function createCita(body) {
-  const { data } = await axios.post(`${API_URL}/citas/`, body, {
-    headers: authHeaders(),
-  });
+  const { data } = await client.post('/citas/', body);
   return data;
 }
 
 export async function updateCita(id, body) {
-  const { data } = await axios.put(`${API_URL}/citas/${id}`, body, {
-    headers: authHeaders(),
-  });
+  const { data } = await client.put(`/citas/${id}`, body);
   return data;
 }
 
 export async function deleteCita(id) {
-  await axios.delete(`${API_URL}/citas/${id}`, {
-    headers: authHeaders(),
-  });
+  await client.delete(`/citas/${id}`);
 }
 
 export async function patchCitaEstado(id, estado) {
-  const { data } = await axios.patch(
-    `${API_URL}/citas/${id}/estado`,
-    { estado },
-    { headers: authHeaders() },
-  );
+  const { data } = await client.patch(`/citas/${id}/estado`, { estado });
   return data;
 }
 
 export async function ajusteAdminCita(id, body) {
-  const { data } = await axios.patch(
-    `${API_URL}/citas/${id}/ajuste-admin`,
-    body,
-    { headers: authHeaders() },
-  );
+  const { data } = await client.patch(`/citas/${id}/ajuste-admin`, body);
   return data;
 }

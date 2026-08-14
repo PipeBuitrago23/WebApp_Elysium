@@ -1,6 +1,7 @@
 fastapi
 uvicorn[standard]
 sqlalchemy
+alembic
 psycopg2-binary
 python-jose[cryptography]
 passlib[bcrypt]
@@ -8,3 +9,5 @@ bcrypt
 python-multipart
 slowapi
 resend
+pytest
+httpx

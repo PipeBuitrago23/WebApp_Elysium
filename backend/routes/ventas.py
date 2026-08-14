@@ -1,21 +1,43 @@
 import uuid
 from datetime import date
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 from sqlalchemy.orm import Session
 from auth.jwt import require_admin
-from database import get_db
+from core.constants import METODOS_PAGO
+from core.planes import crear_pago
+from core.servicios import tipos_validos
+from database import current_tenant_id, get_db
+from middleware.tenant import get_current_tenant
 from models.paciente import Paciente
+from models.tenant import Tenant
 from models.venta import Venta
 from services.email import send_confirmacion_pago
 
+# Sale category catalog — billing/catalog data, explicitly out of scope for
+# this phase (same boundary as frontend/src/constants/packages.js).
 CATEGORIAS_VALIDAS = {"Fisioterapia", "Pilates", "Combos", "Prendas de Vestir"}
-METODOS_PAGO       = {"Efectivo", "Transferencia", "Tarjeta", "Otro"}
 
 router = APIRouter()
 
 
-# ── Schemas ───────────────────────────────────────────────────────────────────
+# ── Schemas ──────────────────────────────────────────────────────────────────
+
+class PlanVentaItem(BaseModel):
+    """One Pago to create alongside the Venta. The frontend resolves how many
+    of these a sale implies (1 for a plain Pilates/Fisioterapia package, 2
+    for a Combo split across both, 0 for Prendas de Vestir) — the backend
+    only validates each tipo_paquete against the tenant's real servicios."""
+    tipo_paquete: str
+    sesiones: int
+
+    @field_validator("sesiones")
+    @classmethod
+    def sesiones_positivas(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("sesiones debe ser mayor a 0")
+        return v
+
 
 class VentaCreate(BaseModel):
     paciente_id:    str
@@ -24,8 +46,10 @@ class VentaCreate(BaseModel):
     total_sesiones: int | None = None
     valor_total:    float
     abono:          float
-    fecha:          date
+    fecha_inicio:   date
+    fecha_pago:     date | None = None
     metodo_pago:    str
+    planes:         list[PlanVentaItem] = []
 
     @field_validator("categoria")
     @classmethod
@@ -55,6 +79,12 @@ class VentaCreate(BaseModel):
             raise ValueError("El valor total debe ser mayor a cero.")
         return v
 
+    @model_validator(mode="after")
+    def sin_fecha_pago_implica_sin_abono(self):
+        if self.fecha_pago is None and self.abono != 0:
+            raise ValueError("No puede haber abono sin fecha de pago.")
+        return self
+
 
 class VentaOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -67,7 +97,8 @@ class VentaOut(BaseModel):
     valor_total:    float
     abono:          float
     saldo:          float
-    fecha:          date
+    fecha_inicio:   date
+    fecha_pago:     date | None
     metodo_pago:    str
     estado:         str
     paciente_nombre: str | None = None
@@ -85,7 +116,8 @@ def _out(v: Venta, nombre: str | None) -> VentaOut:
         valor_total=v.valor_total,
         abono=v.abono,
         saldo=v.saldo,
-        fecha=v.fecha,
+        fecha_inicio=v.fecha_inicio,
+        fecha_pago=v.fecha_pago,
         metodo_pago=v.metodo_pago,
         estado=v.estado,
         paciente_nombre=nombre,
@@ -112,10 +144,10 @@ def list_ventas(
     if estado:
         q = q.filter(Venta.estado == estado)
     if fecha_desde:
-        q = q.filter(Venta.fecha >= fecha_desde)
+        q = q.filter(Venta.fecha_pago >= fecha_desde)
     if fecha_hasta:
-        q = q.filter(Venta.fecha <= fecha_hasta)
-    ventas = q.order_by(Venta.fecha.desc()).all()
+        q = q.filter(Venta.fecha_pago <= fecha_hasta)
+    ventas = q.order_by(Venta.fecha_inicio.desc()).all()
 
     pac_ids  = {v.paciente_id for v in ventas}
     nombres  = {
@@ -130,9 +162,11 @@ def create_venta(
     data: VentaCreate,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
+    tenant: Tenant = Depends(get_current_tenant),
     _: dict = Depends(require_admin),
 ):
-    pac = db.get(Paciente, data.paciente_id)
+    tenant_id = current_tenant_id.get()
+    pac = db.get(Paciente, (tenant_id, data.paciente_id))
     if not pac:
         raise HTTPException(status_code=404, detail="Paciente no encontrado.")
 
@@ -142,11 +176,21 @@ def create_venta(
             detail="El abono no puede superar el valor total.",
         )
 
+    if data.planes:
+        tipos = tipos_validos(db, tenant, incluir_cortesia=False)
+        invalidos = [p.tipo_paquete for p in data.planes if p.tipo_paquete not in tipos]
+        if invalidos:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"tipo_paquete inválido: {', '.join(invalidos)}. Opciones: {', '.join(sorted(tipos))}",
+            )
+
     saldo  = round(data.valor_total - data.abono, 2)
     estado = "pagada" if saldo == 0 else "pendiente"
 
     row = Venta(
         id=str(uuid.uuid4()),
+        tenant_id=tenant_id,
         paciente_id=data.paciente_id,
         nombre_paquete=data.nombre_paquete,
         categoria=data.categoria,
@@ -154,16 +198,25 @@ def create_venta(
         valor_total=data.valor_total,
         abono=data.abono,
         saldo=saldo,
-        fecha=data.fecha,
+        fecha_inicio=data.fecha_inicio,
+        fecha_pago=data.fecha_pago,
         metodo_pago=data.metodo_pago,
         estado=estado,
     )
     db.add(row)
+
+    for plan in data.planes:
+        crear_pago(
+            db, tenant, tenant_id, data.paciente_id, plan.tipo_paquete,
+            plan.sesiones, data.fecha_inicio, data.fecha_pago,
+        )
+
     db.commit()
     db.refresh(row)
 
     if pac.email:
-        background_tasks.add_task(send_confirmacion_pago, pac.nombre, pac.email, row)
+        vigencia_dias = tenant.get_config("vigencia_plan_dias")
+        background_tasks.add_task(send_confirmacion_pago, pac.nombre, pac.email, row, tenant, vigencia_dias)
 
     return _out(row, pac.nombre)
 

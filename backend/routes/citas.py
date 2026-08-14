@@ -1,31 +1,27 @@
 import uuid
-from datetime import date, datetime, time, timedelta
+from datetime import date, time
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, field_validator
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from auth.jwt import require_admin
 from core.planes import descontar_sesion, plan_disponible
-from database import get_db
+from core.servicios import capacidad, descripcion_ventana, hora_valida, tipos_validos
+from database import current_tenant_id, get_db
+from middleware.tenant import get_current_tenant
 from models.cita import Cita
 from models.paciente import Paciente
+from models.tenant import Tenant
 from models.usuario import Usuario
 from services.email import send_confirmacion
 
-TIPOS_VALIDOS       = {"Fisioterapia", "Pilates", "Sesión de cortesía"}
-CAPACIDAD           = {"Fisioterapia": 2, "Pilates": 6, "Sesión de cortesía": 6}
-TURNOS              = ((time(7, 0), time(11, 0)), (time(14, 0), time(18, 0)))
+# Estado machine — universal across tenants, not tenant config.
 ESTADOS_VALIDOS     = {"programada", "confirmada", "completada", "cancelada", "No asistió con penalización"}
 ESTADOS_TERMINAL    = {"completada", "cancelada", "No asistió con penalización"}
 ESTADOS_CON_DESCUENTO = {"completada", "No asistió con penalización"}
-HORAS_CANCELACION   = 2
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
-
-def _cita_datetime(cita: Cita) -> datetime:
-    return datetime.combine(cita.fecha, cita.hora)
-
 
 def procesar_citas_vencidas(db: Session) -> int:
     """Auto-mark past unresolved appointments as no-show and deduct sessions.
@@ -73,21 +69,9 @@ class CitaCreate(BaseModel):
     medico_id: str | None = None
     motivo_remision: str | None = None
 
-    @field_validator("hora")
-    @classmethod
-    def hora_valida(cls, v: time) -> time:
-        if v.minute not in (0, 30) or v.second != 0:
-            raise ValueError("La hora debe ser en punto (:00) o y media (:30)")
-        if not any(ini <= v <= fin for ini, fin in TURNOS):
-            raise ValueError("Horario fuera de ventana permitida (07:00–11:00 · 14:00–18:00)")
-        return v
-
-    @field_validator("tipo")
-    @classmethod
-    def tipo_valido(cls, v: str) -> str:
-        if v not in TIPOS_VALIDOS:
-            raise ValueError(f"Tipo inválido. Opciones: {', '.join(TIPOS_VALIDOS)}")
-        return v
+    # hora/tipo validity now depend on the tenant's config (horario,
+    # servicios) — Pydantic validators run before a DB session or tenant
+    # exists, so those checks moved into create_cita()'s body instead.
 
 
 class CitaUpdate(BaseModel):
@@ -206,8 +190,21 @@ def create_cita(
     data: CitaCreate,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
+    tenant: Tenant = Depends(get_current_tenant),
     _: dict = Depends(require_admin),
 ):
+    tipos = tipos_validos(db, tenant)
+    if data.tipo not in tipos:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Tipo inválido. Opciones: {', '.join(sorted(tipos))}",
+        )
+    if not hora_valida(tenant, data.hora):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Horario fuera de ventana permitida ({descripcion_ventana(tenant)})",
+        )
+
     if data.medico_id:
         medico = db.query(Usuario).filter(Usuario.id == data.medico_id, Usuario.es_medico == True).first()  # noqa: E712
         if not medico:
@@ -232,22 +229,25 @@ def create_cita(
         Cita.tipo == data.tipo,
         Cita.estado.notin_(["cancelada"]),
     ).count()
-    if ocupados >= CAPACIDAD[data.tipo]:
+    cap = capacidad(db, data.tipo)
+    if cap is None or ocupados >= cap:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Slot lleno para {data.tipo} el {data.fecha} a las {data.hora.strftime('%H:%M')}",
         )
 
-    row = Cita(id=str(uuid.uuid4()), estado="programada", **data.model_dump())
+    row = Cita(
+        id=str(uuid.uuid4()), tenant_id=current_tenant_id.get(), estado="programada", **data.model_dump()
+    )
     db.add(row)
     db.commit()
     db.refresh(row)
     if plan:
         db.refresh(plan)  # plan was expired by the commit above; reload before detach
 
-    pac = db.get(Paciente, data.paciente_id)
+    pac = db.get(Paciente, (current_tenant_id.get(), data.paciente_id))
     if pac and pac.email:
-        background_tasks.add_task(send_confirmacion, pac.nombre, pac.email, row, plan)
+        background_tasks.add_task(send_confirmacion, pac.nombre, pac.email, row, tenant, plan)
 
     return _citas_out(db, [row])[0]
 
@@ -259,6 +259,12 @@ def patch_estado(
     db: Session = Depends(get_db),
     _: dict = Depends(require_admin),
 ):
+    """Cambia el estado de una cita a pedido explícito del admin. A
+    diferencia del portal del paciente (routes/portal.py), esta ruta NUNCA
+    auto-convierte "cancelada" en penalización por la ventana de 2 horas —
+    esa regla existe para que el paciente no cancele tarde sin avisar, no
+    para el admin, que decide explícitamente si la inasistencia/cancelación
+    tardía amerita descuento usando el botón "No asistió"."""
     cita = db.get(Cita, cita_id)
     if not cita:
         raise HTTPException(status_code=404, detail="Cita no encontrada")
@@ -271,11 +277,6 @@ def patch_estado(
         )
 
     nuevo = data.estado
-
-    # 2-hour cancellation window: auto-convert to penalty
-    if nuevo == "cancelada":
-        if datetime.now() >= _cita_datetime(cita) - timedelta(hours=HORAS_CANCELACION):
-            nuevo = "No asistió con penalización"
 
     # Deduct session for attended or penalized outcomes.
     # Citas remitidas por un médico no exigen plan activo (ver create_cita).
@@ -294,6 +295,7 @@ def ajuste_admin(
     cita_id: str,
     data: AjusteAdminBody,
     db: Session = Depends(get_db),
+    tenant: Tenant = Depends(get_current_tenant),
     _: dict = Depends(require_admin),
 ):
     """Cancel or reschedule without touching session count and without the 2-hour rule.
@@ -316,15 +318,10 @@ def ajuste_admin(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="Se requiere fecha y hora para reprogramar.",
             )
-        if data.hora.minute not in (0, 30) or data.hora.second != 0:
+        if not hora_valida(tenant, data.hora):
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="La hora debe ser :00 o :30.",
-            )
-        if not any(ini <= data.hora <= fin for ini, fin in TURNOS):
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Horario fuera de ventana permitida (07:00–11:00 · 14:00–18:00).",
+                detail=f"Horario fuera de ventana permitida ({descripcion_ventana(tenant)}).",
             )
         ocupados = (
             db.query(Cita)
@@ -337,7 +334,8 @@ def ajuste_admin(
             )
             .count()
         )
-        if ocupados >= CAPACIDAD[cita.tipo]:
+        cap = capacidad(db, cita.tipo)
+        if cap is None or ocupados >= cap:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"Ese horario ya está lleno para {cita.tipo}.",

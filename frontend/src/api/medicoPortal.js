@@ -1,22 +1,11 @@
-import axios from 'axios';
-
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-
-function authHeaders() {
-  const token = sessionStorage.getItem('elysium_token');
-  return { Authorization: `Bearer ${token}` };
-}
+import client from './client';
 
 export async function getMisCitas() {
-  const { data } = await axios.get(`${API_URL}/medico/citas`, {
-    headers: authHeaders(),
-  });
+  const { data } = await client.get('/medico/citas');
   return data;
 }
 
 export async function crearCitaMedico(body) {
-  const { data } = await axios.post(`${API_URL}/medico/citas`, body, {
-    headers: authHeaders(),
-  });
+  const { data } = await client.post('/medico/citas', body);
   return data;
 }

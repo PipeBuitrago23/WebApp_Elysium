@@ -1,12 +1,10 @@
 import { useState } from 'react';
 import { CheckCircle, X } from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
 import { cambiarPassword } from '../api/auth';
 
 const EMPTY = { actual: '', nueva: '', confirmar: '' };
 
 export default function CambiarPasswordModal({ onClose }) {
-  const { token } = useAuth();
   const [form, setForm] = useState({ ...EMPTY });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -24,7 +22,7 @@ export default function CambiarPasswordModal({ onClose }) {
     setSaving(true);
     setError('');
     try {
-      await cambiarPassword(token, form.actual, form.nueva);
+      await cambiarPassword(form.actual, form.nueva);
       setSuccess(true);
     } catch (err) {
       setError(err.response?.data?.detail || 'Error al cambiar la contraseña.');

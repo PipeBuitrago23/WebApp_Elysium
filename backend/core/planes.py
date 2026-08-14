@@ -1,9 +1,11 @@
-from datetime import date
+import uuid
+from datetime import date, timedelta
 
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from models.pago import Pago
+from models.tenant import Tenant
 
 
 def plan_disponible(db: Session, paciente_id: str, tipo: str, fecha: date) -> Pago | None:
@@ -44,3 +46,33 @@ def descontar_sesion(db: Session, paciente_id: str, tipo: str, required: bool = 
         return None
     plan.sesiones_restantes -= 1
     return plan
+
+
+def crear_pago(
+    db: Session,
+    tenant: Tenant,
+    tenant_id: str,
+    paciente_id: str,
+    tipo_paquete: str,
+    total_sesiones: int,
+    fecha_inicio: date,
+    fecha_pago: date | None,
+) -> Pago:
+    """Crea (sin commitear) un Pago con fecha_vencimiento calculada desde
+    fecha_inicio + la vigencia configurada del tenant. Compartido por
+    routes/pagos.py (asignación directa) y routes/ventas.py (una Venta con
+    sesiones crea su(s) Pago vinculado(s) automáticamente)."""
+    vigencia_dias = tenant.get_config("vigencia_plan_dias")
+    row = Pago(
+        id=str(uuid.uuid4()),
+        tenant_id=tenant_id,
+        paciente_id=paciente_id,
+        tipo_paquete=tipo_paquete,
+        total_sesiones=total_sesiones,
+        sesiones_restantes=total_sesiones,
+        fecha_pago=fecha_pago,
+        fecha_inicio=fecha_inicio,
+        fecha_vencimiento=fecha_inicio + timedelta(days=vigencia_dias),
+    )
+    db.add(row)
+    return row

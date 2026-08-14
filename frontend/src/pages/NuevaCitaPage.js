@@ -3,25 +3,16 @@ import { CheckCircle, Search } from 'lucide-react';
 import { getPacientes } from '../api/pacientes';
 import { createCita } from '../api/citas';
 import { getMedicos } from '../api/medicos';
-
-const TIPOS = ['Fisioterapia', 'Pilates', 'Sesión de cortesía'];
-
-// Mañana 07:00–11:00, tarde 14:00–18:00 (matches backend validation)
-const VALID_SLOTS = [];
-for (let h = 7; h <= 11; h++) {
-  VALID_SLOTS.push(`${String(h).padStart(2, '0')}:00`);
-  if (h < 11) VALID_SLOTS.push(`${String(h).padStart(2, '0')}:30`);
-}
-for (let h = 14; h <= 18; h++) {
-  VALID_SLOTS.push(`${String(h).padStart(2, '0')}:00`);
-  if (h < 18) VALID_SLOTS.push(`${String(h).padStart(2, '0')}:30`);
-}
+import { useTenant } from '../context/TenantContext';
+import { buildSlots } from '../utils/schedule';
 
 const today = () => new Date().toISOString().split('T')[0];
 
 const EMPTY = { paciente_id: '', fecha: today(), hora: '', tipo: '', notas: '', medico_id: '', motivo_remision: '' };
 
 export default function NuevaCitaPage() {
+  const { tiposCita, horario } = useTenant();
+  const VALID_SLOTS = buildSlots(horario);
   const [form, setForm] = useState({ ...EMPTY });
   const [pacientes, setPacientes] = useState([]);
   const [medicos, setMedicos] = useState([]);
@@ -174,7 +165,7 @@ export default function NuevaCitaPage() {
           <div>
             <label className="block text-xs font-medium text-slate-600 mb-2">Tipo de servicio</label>
             <div className="flex gap-2 flex-wrap">
-              {TIPOS.map((t) => (
+              {tiposCita.map((t) => (
                 <button
                   key={t}
                   type="button"

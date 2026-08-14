@@ -1,14 +1,14 @@
-import uuid
-from datetime import date, timedelta
+from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, field_validator
 from sqlalchemy.orm import Session
 from auth.jwt import require_admin
-from database import get_db
+from core.planes import crear_pago
+from core.servicios import tipos_validos
+from database import current_tenant_id, get_db
+from middleware.tenant import get_current_tenant
 from models.pago import Pago
-
-VIGENCIA_DIAS = 45
-TIPOS_VALIDOS = {"Pilates", "Fisioterapia"}
+from models.tenant import Tenant
 
 
 # ── Schemas ──────────────────────────────────────────────────────────────────
@@ -17,15 +17,11 @@ class PagoCreate(BaseModel):
     paciente_id:    str
     tipo_paquete:   str
     total_sesiones: int
-    fecha_pago:     date
+    fecha_pago:     date | None = None
     fecha_inicio:   date
 
-    @field_validator("tipo_paquete")
-    @classmethod
-    def tipo_valido(cls, v: str) -> str:
-        if v not in TIPOS_VALIDOS:
-            raise ValueError(f"tipo_paquete debe ser uno de: {', '.join(TIPOS_VALIDOS)}")
-        return v
+    # tipo_paquete validity depends on the tenant's servicios — checked in
+    # create_pago()'s body instead (see routes/citas.py for why).
 
     @field_validator("total_sesiones")
     @classmethod
@@ -43,7 +39,7 @@ class PagoOut(BaseModel):
     tipo_paquete:       str
     total_sesiones:     int
     sesiones_restantes: int
-    fecha_pago:         date
+    fecha_pago:         date | None
     fecha_inicio:       date
     fecha_vencimiento:  date
 
@@ -62,26 +58,27 @@ def list_pagos(
     q = db.query(Pago)
     if paciente_id:
         q = q.filter(Pago.paciente_id == paciente_id)
-    return q.order_by(Pago.fecha_pago.desc()).all()
+    return q.order_by(Pago.fecha_inicio.desc()).all()
 
 
 @router.post("/", response_model=PagoOut, status_code=status.HTTP_201_CREATED)
 def create_pago(
     data: PagoCreate,
     db: Session = Depends(get_db),
+    tenant: Tenant = Depends(get_current_tenant),
     _: dict = Depends(require_admin),
 ):
-    row = Pago(
-        id                 = str(uuid.uuid4()),
-        paciente_id        = data.paciente_id,
-        tipo_paquete       = data.tipo_paquete,
-        total_sesiones     = data.total_sesiones,
-        sesiones_restantes = data.total_sesiones,
-        fecha_pago         = data.fecha_pago,
-        fecha_inicio       = data.fecha_inicio,
-        fecha_vencimiento  = data.fecha_inicio + timedelta(days=VIGENCIA_DIAS),
+    # Packages are never sold for "Sesión de cortesía" — real servicios only.
+    tipos = tipos_validos(db, tenant, incluir_cortesia=False)
+    if data.tipo_paquete not in tipos:
+        raise HTTPException(
+            status_code=422, detail=f"tipo_paquete debe ser uno de: {', '.join(sorted(tipos))}"
+        )
+
+    row = crear_pago(
+        db, tenant, current_tenant_id.get(), data.paciente_id, data.tipo_paquete,
+        data.total_sesiones, data.fecha_inicio, data.fecha_pago,
     )
-    db.add(row)
     db.commit()
     db.refresh(row)
     return row

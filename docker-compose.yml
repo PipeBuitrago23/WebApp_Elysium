@@ -23,7 +23,7 @@ services:
   backend:
     build: ./backend
     container_name: elysium_backend
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    command: sh -c "alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
     ports:
       - "8000:8000"
     depends_on:
@@ -31,6 +31,10 @@ services:
         condition: service_healthy
     environment:
       - DATABASE_URL=postgresql://admin:password_seguro@db:5432/elysium_agenda
+      # Runtime connection for Row-Level Security — non-superuser role, must
+      # be bootstrapped once via backend/scripts/bootstrap_app_role.sql
+      # (password below must match what you set there for local dev).
+      - APP_DATABASE_URL=postgresql://app_user:app_user_dev_pw@db:5432/elysium_agenda
       - JWT_SECRET_KEY=dev-secret-key-change-in-production
       # Email (local dev leaves these blank → emails go to the log, not sent)
       - GMAIL_USER=
@@ -51,6 +55,12 @@ services:
       - HOST=0.0.0.0
       - CHOKIDAR_USEPOLLING=true
       - REACT_APP_API_URL=http://localhost:8000
+      # Dev-only: localhost has no real subdomain, so this tells the backend
+      # which tenant to resolve (TenantMiddleware honors X-Tenant-Slug only
+      # when RAILWAY_ENVIRONMENT != "production"). See frontend/src/config/runtime.js.
+      - REACT_APP_DEV_TENANT_SLUG=elysium
+      # Only used outside localhost (see runtime.js) — harmless placeholder here.
+      - REACT_APP_BASE_DOMAIN=localhost
     volumes:
       - ./frontend:/app
       - /app/node_modules

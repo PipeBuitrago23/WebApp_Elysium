@@ -1,11 +1,14 @@
-from sqlalchemy import Boolean, Column, Date, DateTime, String, Text
+from sqlalchemy import Boolean, Column, Date, DateTime, ForeignKey, String, Text
+from sqlalchemy.dialects.postgresql import UUID
 from database import Base
 
 
 class Paciente(Base):
     __tablename__ = "pacientes"
 
-    # Regla de diseño: columna 'Paciente' como PK (no ID_Paciente)
+    # PK compuesta (tenant_id, "Paciente") — la cédula ("Paciente", Regla de
+    # diseño: nunca renombrar a ID_Paciente) puede repetirse entre tenants.
+    tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id"), primary_key=True)
     Paciente = Column(String, primary_key=True)
     nombre = Column(String, nullable=False)
     telefono = Column(String)

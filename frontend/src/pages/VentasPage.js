@@ -32,9 +32,11 @@ const EMPTY_FORM = {
   nombre_paquete: '',
   total_sesiones: '',
   valor_total:    '',
+  estado_pago:    'pago', // 'pago' | 'abono' | 'pendiente'
   abono:          '',
   metodo_pago:    '',
-  fecha:          localDateISO(),
+  fecha_inicio:   localDateISO(),
+  fecha_pago:     localDateISO(),
 };
 
 // ── Badge ─────────────────────────────────────────────────────────────────────
@@ -43,7 +45,7 @@ function EstadoBadge({ estado }) {
   const cls =
     estado === 'pagada'
       ? 'bg-green-100 text-green-700'
-      : 'bg-red-100 text-red-700';
+      : 'bg-amber-100 text-amber-700';
   return (
     <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${cls}`}>
       {estado === 'pagada' ? 'Pagada' : 'Pendiente'}
@@ -60,9 +62,12 @@ function NuevaVentaModal({ pacientes, onClose, onCreated }) {
   const [search, setSearch] = useState('');
 
   const paquetes  = PACKAGES[form.categoria] || [];
-  const saldo     = form.valor_total !== '' && form.abono !== ''
-    ? Math.max(0, parseFloat(form.valor_total) - parseFloat(form.abono || 0))
-    : null;
+  const total     = form.valor_total !== '' ? parseFloat(form.valor_total) : null;
+  const abonoEfectivo =
+    form.estado_pago === 'pago'   ? (total ?? 0) :
+    form.estado_pago === 'abono'  ? (parseFloat(form.abono) || 0) :
+    0;
+  const saldo = total !== null ? Math.max(0, total - abonoEfectivo) : null;
 
   const pacientesFiltrados = pacientes.filter((p) =>
     p.nombre.toLowerCase().includes(search.toLowerCase()) ||
@@ -96,12 +101,34 @@ function NuevaVentaModal({ pacientes, onClose, onCreated }) {
   async function handleSubmit(e) {
     e.preventDefault();
     setError('');
-    const abono = parseFloat(form.abono) || 0;
-    const total = parseFloat(form.valor_total);
-    if (abono > total) {
-      setError('El abono no puede superar el valor total.');
-      return;
+
+    const totalVal = parseFloat(form.valor_total);
+    let abono = 0;
+    let fecha_pago = null;
+    if (form.estado_pago === 'pago') {
+      abono = totalVal;
+      fecha_pago = form.fecha_pago;
+    } else if (form.estado_pago === 'abono') {
+      abono = parseFloat(form.abono) || 0;
+      if (abono <= 0 || abono >= totalVal) {
+        setError('El abono debe ser mayor a 0 y menor al valor total.');
+        return;
+      }
+      fecha_pago = form.fecha_pago;
     }
+
+    let planes = [];
+    if (form.categoria === 'Pilates' || form.categoria === 'Fisioterapia') {
+      if (form.total_sesiones) {
+        planes = [{ tipo_paquete: form.categoria, sesiones: parseInt(form.total_sesiones) }];
+      }
+    } else if (form.categoria === 'Combos') {
+      const pkg = paquetes.find((p) => p.nombre === form.nombre_paquete);
+      if (pkg?.split) {
+        planes = Object.entries(pkg.split).map(([tipo_paquete, sesiones]) => ({ tipo_paquete, sesiones }));
+      }
+    }
+
     setSaving(true);
     try {
       const body = {
@@ -109,10 +136,12 @@ function NuevaVentaModal({ pacientes, onClose, onCreated }) {
         nombre_paquete: form.nombre_paquete || form.categoria,
         categoria:      form.categoria,
         total_sesiones: form.total_sesiones ? parseInt(form.total_sesiones) : null,
-        valor_total:    total,
+        valor_total:    totalVal,
         abono,
-        fecha:          form.fecha,
+        fecha_inicio:   form.fecha_inicio,
+        fecha_pago,
         metodo_pago:    form.metodo_pago,
+        planes,
       };
       const nueva = await createVenta(body);
       onCreated(nueva);
@@ -126,6 +155,12 @@ function NuevaVentaModal({ pacientes, onClose, onCreated }) {
 
   const inputCls = 'w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-zinc-300';
   const labelCls = 'block text-xs font-medium text-slate-500 mb-1';
+
+  const ESTADOS_PAGO = [
+    { value: 'pago',      label: 'Pagó completo' },
+    { value: 'abono',     label: 'Abonó' },
+    { value: 'pendiente', label: 'Pendiente' },
+  ];
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
@@ -236,26 +271,62 @@ function NuevaVentaModal({ pacientes, onClose, onCreated }) {
             </div>
           </div>
 
-          {/* Abono */}
+          {/* Fecha de inicio del plan */}
           <div>
-            <label className={labelCls}>Abono (COP)</label>
+            <label className={labelCls}>Fecha de inicio del plan</label>
             <input
-              type="number"
-              min="0"
-              max={form.valor_total || undefined}
+              type="date"
               required
-              value={form.abono}
-              onChange={(e) => setField('abono', e.target.value)}
+              value={form.fecha_inicio}
+              onChange={(e) => setField('fecha_inicio', e.target.value)}
               className={inputCls}
             />
-            {saldo !== null && (
-              <p className={`text-xs mt-1 font-medium ${saldo === 0 ? 'text-green-600' : 'text-red-600'}`}>
-                Saldo pendiente: {cop(saldo)}
-              </p>
-            )}
+            <p className="text-[11px] text-slate-400 mt-1">Desde aquí se cuentan los días de vigencia del plan.</p>
           </div>
 
-          {/* Método de pago + fecha */}
+          {/* Estado de pago */}
+          <div>
+            <label className={labelCls}>Pago</label>
+            <div className="flex gap-2">
+              {ESTADOS_PAGO.map((o) => (
+                <button
+                  key={o.value}
+                  type="button"
+                  onClick={() => setField('estado_pago', o.value)}
+                  className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-all ${
+                    form.estado_pago === o.value
+                      ? 'bg-zinc-800 text-white border-zinc-800'
+                      : 'bg-white text-slate-600 border-slate-200 hover:border-zinc-400'
+                  }`}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {form.estado_pago === 'abono' && (
+            <div>
+              <label className={labelCls}>Abono (COP)</label>
+              <input
+                type="number"
+                min="0"
+                max={form.valor_total || undefined}
+                required
+                value={form.abono}
+                onChange={(e) => setField('abono', e.target.value)}
+                className={inputCls}
+              />
+            </div>
+          )}
+
+          {saldo !== null && (
+            <p className={`text-xs -mt-2 font-medium ${saldo === 0 ? 'text-green-600' : 'text-amber-600'}`}>
+              Saldo pendiente: {cop(saldo)}
+            </p>
+          )}
+
+          {/* Método de pago + fecha de pago */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className={labelCls}>Método de pago</label>
@@ -269,16 +340,18 @@ function NuevaVentaModal({ pacientes, onClose, onCreated }) {
                 {METODOS_PAGO.map((m) => <option key={m} value={m}>{m}</option>)}
               </select>
             </div>
-            <div>
-              <label className={labelCls}>Fecha</label>
-              <input
-                type="date"
-                required
-                value={form.fecha}
-                onChange={(e) => setField('fecha', e.target.value)}
-                className={inputCls}
-              />
-            </div>
+            {form.estado_pago !== 'pendiente' && (
+              <div>
+                <label className={labelCls}>Fecha de pago</label>
+                <input
+                  type="date"
+                  required
+                  value={form.fecha_pago}
+                  onChange={(e) => setField('fecha_pago', e.target.value)}
+                  className={inputCls}
+                />
+              </div>
+            )}
           </div>
 
           {error && (
@@ -345,8 +418,9 @@ export default function VentasPage() {
 
   const totalMes = ventas
     .filter((v) => {
+      if (!v.fecha_pago) return false;
       const d = new Date();
-      const [y, m] = v.fecha.split('-').map(Number);
+      const [y, m] = v.fecha_pago.split('-').map(Number);
       return y === d.getFullYear() && m === d.getMonth() + 1;
     })
     .reduce((acc, v) => acc + v.abono, 0);
@@ -372,9 +446,9 @@ export default function VentasPage() {
           <p className="text-3xl font-bold text-slate-800">{loading ? '…' : cop(totalMes)}</p>
           <p className="text-xs text-slate-400 mt-1">abonos recibidos</p>
         </div>
-        <div className={`bg-white rounded-xl border p-5 ${pendientes > 0 ? 'border-red-200' : 'border-slate-200'}`}>
+        <div className={`bg-white rounded-xl border p-5 ${pendientes > 0 ? 'border-amber-200' : 'border-slate-200'}`}>
           <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">Con saldo pendiente</p>
-          <p className={`text-3xl font-bold ${pendientes > 0 ? 'text-red-600' : 'text-slate-800'}`}>
+          <p className={`text-3xl font-bold ${pendientes > 0 ? 'text-amber-600' : 'text-slate-800'}`}>
             {loading ? '…' : pendientes}
           </p>
         </div>
@@ -406,7 +480,7 @@ export default function VentasPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-100 text-xs text-slate-400 uppercase tracking-wide">
-                    <th className="px-6 py-3 text-left font-medium">Fecha</th>
+                    <th className="px-6 py-3 text-left font-medium">Inicio</th>
                     <th className="px-6 py-3 text-left font-medium">Paciente</th>
                     <th className="px-6 py-3 text-left font-medium">Paquete</th>
                     <th className="px-6 py-3 text-left font-medium">Total</th>
@@ -419,14 +493,14 @@ export default function VentasPage() {
                 <tbody>
                   {ventas.map((v) => (
                     <tr key={v.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60 transition-colors">
-                      <td className="px-6 py-3.5 text-slate-500 text-xs">{fmtDate(v.fecha)}</td>
+                      <td className="px-6 py-3.5 text-slate-500 text-xs">{fmtDate(v.fecha_inicio)}</td>
                       <td className="px-6 py-3.5 text-slate-700 font-medium">
                         {v.paciente_nombre || nombresMap[v.paciente_id] || v.paciente_id}
                       </td>
                       <td className="px-6 py-3.5 text-slate-600 text-xs max-w-[180px] truncate">{v.nombre_paquete}</td>
                       <td className="px-6 py-3.5 text-slate-700 font-mono text-xs">{cop(v.valor_total)}</td>
                       <td className="px-6 py-3.5 text-green-700 font-mono text-xs">{cop(v.abono)}</td>
-                      <td className={`px-6 py-3.5 font-mono text-xs font-semibold ${v.saldo > 0 ? 'text-red-600' : 'text-slate-400'}`}>
+                      <td className={`px-6 py-3.5 font-mono text-xs font-semibold ${v.saldo > 0 ? 'text-amber-600' : 'text-slate-400'}`}>
                         {cop(v.saldo)}
                       </td>
                       <td className="px-6 py-3.5"><EstadoBadge estado={v.estado} /></td>
@@ -462,11 +536,11 @@ export default function VentasPage() {
                     </p>
                     <EstadoBadge estado={v.estado} />
                   </div>
-                  <p className="text-xs text-slate-500 mb-2">{v.nombre_paquete} · {fmtDate(v.fecha)}</p>
+                  <p className="text-xs text-slate-500 mb-2">{v.nombre_paquete} · {fmtDate(v.fecha_inicio)}</p>
                   <div className="flex gap-4 text-xs">
                     <span className="text-slate-600">Total: <strong className="font-mono">{cop(v.valor_total)}</strong></span>
                     <span className="text-green-700">Abono: <strong className="font-mono">{cop(v.abono)}</strong></span>
-                    {v.saldo > 0 && <span className="text-red-600">Saldo: <strong className="font-mono">{cop(v.saldo)}</strong></span>}
+                    {v.saldo > 0 && <span className="text-amber-600">Saldo: <strong className="font-mono">{cop(v.saldo)}</strong></span>}
                   </div>
                 </div>
               ))}

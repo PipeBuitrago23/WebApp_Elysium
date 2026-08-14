@@ -1,12 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CreditCard, Eye, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
+import { Eye, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
 import { getPacientes, createPaciente, updatePaciente, deletePaciente } from '../api/pacientes';
-import { getPagos, createPago } from '../api/pagos';
+import { getPagos } from '../api/pagos';
 import VerPacienteModal from '../components/VerPacienteModal';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-
-const TIPOS_PAQUETE = ['Pilates', 'Fisioterapia'];
 
 const PAQUETE_STYLE = {
   Pilates:      'bg-zinc-100 text-zinc-700',
@@ -18,14 +16,6 @@ const EMPTY_FORM = {
   fecha_nacimiento: '', antecedentes: '', cirugias: '',
 };
 
-const EMPTY_PLAN = {
-  enabled:        false,
-  tipo_paquete:   'Pilates',
-  total_sesiones: '',
-  fecha_inicio:   new Date().toISOString().split('T')[0],
-  fecha_pago:     new Date().toISOString().split('T')[0],
-};
-
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const MONTHS = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
@@ -34,12 +24,6 @@ function fmtDate(iso) {
   if (!iso) return '—';
   const [y, m, d] = iso.split('-');
   return `${parseInt(d)} ${MONTHS[parseInt(m) - 1]} ${y}`;
-}
-
-function addDays(isoDate, n) {
-  const d = new Date(isoDate);
-  d.setDate(d.getDate() + n);
-  return d.toISOString().split('T')[0];
 }
 
 function venceColor(iso) {
@@ -103,7 +87,7 @@ export default function PacientesPage() {
   // ── Modal openers ───────────────────────────────────────────────────────────
 
   function openCreate() {
-    setModal({ mode: 'create', form: { ...EMPTY_FORM }, plan: { ...EMPTY_PLAN }, formError: '' });
+    setModal({ mode: 'create', form: { ...EMPTY_FORM }, formError: '' });
   }
 
   function openEdit(p) {
@@ -118,8 +102,6 @@ export default function PacientesPage() {
         antecedentes:    p.antecedentes    || '',
         cirugias:        p.cirugias        || '',
       },
-      plan:       { ...EMPTY_PLAN },
-      activePlans: planesActivosMap[p.Paciente] || [],
       formError:  '',
     });
   }
@@ -137,25 +119,14 @@ export default function PacientesPage() {
     setModal((prev) => ({ ...prev, form: { ...prev.form, [name]: value } }));
   }
 
-  function handlePlanChange(patch) {
-    setModal((prev) => ({ ...prev, plan: { ...prev.plan, ...patch } }));
-  }
-
   async function handleSave(e) {
     e.preventDefault();
-    const { form, plan, mode } = modal;
-
-    if (plan.enabled && (!plan.total_sesiones || parseInt(plan.total_sesiones) < 1)) {
-      setModal((prev) => ({ ...prev, formError: 'Ingresa un número de sesiones válido.' }));
-      return;
-    }
+    const { form, mode } = modal;
 
     setSaving(true);
     setModal((prev) => ({ ...prev, formError: '' }));
 
     try {
-      const pacienteId = form.Paciente;
-
       if (mode === 'create') {
         const body = { ...form };
         if (!body.fecha_nacimiento) delete body.fecha_nacimiento;
@@ -164,16 +135,6 @@ export default function PacientesPage() {
         const { Paciente: id, ...rest } = form;
         if (!rest.fecha_nacimiento) delete rest.fecha_nacimiento;
         await updatePaciente(id, rest);
-      }
-
-      if (plan.enabled) {
-        await createPago({
-          paciente_id:    pacienteId,
-          tipo_paquete:   plan.tipo_paquete,
-          total_sesiones: parseInt(plan.total_sesiones),
-          fecha_inicio:   plan.fecha_inicio,
-          fecha_pago:     plan.fecha_pago,
-        });
       }
 
       setModal(null);
@@ -390,126 +351,6 @@ export default function PacientesPage() {
               <Field label="Fecha de nacimiento" name="fecha_nacimiento" type="date" value={modal.form.fecha_nacimiento} onChange={handleFormChange} />
               <TextareaField label="Antecedentes relevantes" name="antecedentes" value={modal.form.antecedentes} onChange={handleFormChange} />
               <TextareaField label="Cirugías / procedimientos" name="cirugias" value={modal.form.cirugias} onChange={handleFormChange} />
-
-              {/* ── Plan section ── */}
-              <div className="border-t border-slate-100 pt-4 space-y-3">
-                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Plan / paquete</p>
-
-                {/* Active plan badges (edit only) */}
-                {modal.mode === 'edit' && modal.activePlans.length > 0 && (
-                  <div className="space-y-2">
-                    {modal.activePlans.map((plan) => (
-                      <div key={plan.id} className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex flex-wrap items-center gap-3">
-                        <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${PAQUETE_STYLE[plan.tipo_paquete] || ''}`}>
-                          {plan.tipo_paquete}
-                        </span>
-                        <span className="text-sm text-slate-700">
-                          {plan.sesiones_restantes} / {plan.total_sesiones} sesiones
-                        </span>
-                        <span className={`text-sm ${venceColor(plan.fecha_vencimiento)}`}>
-                          Vence {fmtDate(plan.fecha_vencimiento)}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {modal.mode === 'edit' && modal.activePlans.length === 0 && (
-                  <p className="text-sm text-slate-400">Este paciente no tiene un plan activo.</p>
-                )}
-
-                {/* Toggle */}
-                <label className="flex items-center gap-3 cursor-pointer select-none">
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={modal.plan.enabled}
-                    onClick={() => handlePlanChange({ enabled: !modal.plan.enabled })}
-                    className={`relative w-10 h-5 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-zinc-500 focus:ring-offset-1 ${modal.plan.enabled ? 'bg-zinc-800' : 'bg-slate-200'}`}
-                  >
-                    <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${modal.plan.enabled ? 'translate-x-5' : 'translate-x-0'}`} />
-                  </button>
-                  <span className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
-                    <CreditCard className="w-4 h-4 text-slate-400" />
-                    {modal.mode === 'create' ? 'Asignar plan ahora' : 'Agregar nuevo plan'}
-                  </span>
-                </label>
-
-                {/* Plan fields */}
-                {modal.plan.enabled && (
-                  <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-4">
-                    {/* Tipo */}
-                    <div>
-                      <label className="block text-xs font-medium text-slate-600 mb-2">Tipo de paquete</label>
-                      <div className="flex gap-2">
-                        {TIPOS_PAQUETE.map((t) => (
-                          <button
-                            key={t}
-                            type="button"
-                            onClick={() => handlePlanChange({ tipo_paquete: t })}
-                            className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-all ${
-                              modal.plan.tipo_paquete === t
-                                ? 'bg-zinc-800 text-white border-zinc-800'
-                                : 'bg-white text-slate-600 border-slate-200 hover:border-zinc-400'
-                            }`}
-                          >
-                            {t}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Sesiones */}
-                    <div>
-                      <label className="block text-xs font-medium text-slate-600 mb-1">Sesiones totales</label>
-                      <input
-                        type="number"
-                        min="1"
-                        max="100"
-                        value={modal.plan.total_sesiones}
-                        onChange={(e) => handlePlanChange({ total_sesiones: e.target.value })}
-                        placeholder="Ej. 10"
-                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-500 bg-white"
-                      />
-                    </div>
-
-                    {/* Fecha de inicio + fecha de pago */}
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-xs font-medium text-slate-600 mb-1">Fecha de inicio del plan</label>
-                        <input
-                          type="date"
-                          value={modal.plan.fecha_inicio}
-                          onChange={(e) => handlePlanChange({ fecha_inicio: e.target.value })}
-                          className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-500 bg-white"
-                        />
-                        <p className="text-[11px] text-slate-400 mt-1">Desde aquí se cuentan los 45 días de vigencia.</p>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-slate-600 mb-1">Fecha de pago</label>
-                        <input
-                          type="date"
-                          value={modal.plan.fecha_pago}
-                          onChange={(e) => handlePlanChange({ fecha_pago: e.target.value })}
-                          className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-500 bg-white"
-                        />
-                        <p className="text-[11px] text-slate-400 mt-1">Puede ser distinta si pagó en abonos.</p>
-                      </div>
-                    </div>
-
-                    {/* Expiration preview */}
-                    {modal.plan.fecha_inicio && (
-                      <div className="flex items-center gap-2 text-sm bg-zinc-50 border border-zinc-100 rounded-lg px-3 py-2">
-                        <span className="text-zinc-700 font-medium">Vigencia:</span>
-                        <span className="text-zinc-800 font-semibold">
-                          {fmtDate(modal.plan.fecha_inicio)} → {fmtDate(addDays(modal.plan.fecha_inicio, 45))}
-                        </span>
-                        <span className="text-zinc-500 text-xs ml-auto">45 días</span>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
 
               {/* Actions */}
               <div className="flex justify-end gap-3 pt-2">

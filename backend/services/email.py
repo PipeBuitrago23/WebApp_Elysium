@@ -5,6 +5,8 @@ from urllib.parse import quote
 
 import resend
 
+from models.tenant import Tenant
+
 logger = logging.getLogger(__name__)
 
 RESEND_API_KEY = os.getenv("RESEND_API_KEY")
@@ -18,8 +20,13 @@ if not RESEND_API_KEY:
 else:
     resend.api_key = RESEND_API_KEY
 
-PORTAL_URL      = os.getenv("PORTAL_URL", "http://localhost:3000/portal")
-CLINIC_MAPS_URL = os.getenv("CLINIC_MAPS_URL", "https://maps.google.com")
+# PORTAL_URL is an explicit override — kept for local dev, where BASE_DOMAIN
+# isn't wired to a real domain yet, so this is the only way to get a working
+# link. Once BASE_DOMAIN is set (Phase 2.4/2.5), each tenant's emails link to
+# their own subdomain via _portal_url() below instead of one shared URL.
+_PORTAL_URL_OVERRIDE = os.getenv("PORTAL_URL")
+BASE_DOMAIN          = os.getenv("BASE_DOMAIN", "")
+CLINIC_MAPS_URL      = os.getenv("CLINIC_MAPS_URL", "https://maps.google.com")
 
 _DAYS_ES   = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
 _MONTHS_ES = ["enero", "febrero", "marzo", "abril", "mayo", "junio",
@@ -33,17 +40,37 @@ def _fmt_fecha(d) -> str:
     return f"{_DAYS_ES[d.weekday()]} {d.day} de {_MONTHS_ES[d.month - 1]} de {d.year}"
 
 
-def _google_cal_url(cita) -> str:
+def _portal_url(tenant_slug: str) -> str:
+    """PORTAL_URL wins if set (local dev override). Otherwise, once
+    BASE_DOMAIN is configured, each tenant gets its own portal link —
+    <slug>.<BASE_DOMAIN>/portal — instead of one shared URL. Falls back to
+    localhost so nothing breaks before either is configured."""
+    if _PORTAL_URL_OVERRIDE:
+        return _PORTAL_URL_OVERRIDE
+    if BASE_DOMAIN:
+        return f"https://{tenant_slug}.{BASE_DOMAIN}/portal"
+    return "http://localhost:3000/portal"
+
+
+def _brand_color(tenant: Tenant) -> str:
+    """tenant.branding.color_primario overrides the buttons/card accent —
+    defaults to the zinc-800 already hardcoded everywhere below, so a tenant
+    that hasn't configured branding (Elysium included) renders identically
+    to before this existed."""
+    return (tenant.branding or {}).get("color_primario", "#27272a")
+
+
+def _google_cal_url(cita, tenant_nombre: str) -> str:
     dt_start = datetime.combine(cita.fecha, cita.hora)
     dt_end   = dt_start + timedelta(minutes=_DURACION.get(cita.tipo, 60))
     fmt      = "%Y%m%dT%H%M%S"
     dates    = f"{dt_start.strftime(fmt)}/{dt_end.strftime(fmt)}"
-    text     = quote(f"Cita {cita.tipo} – Elysium Fisio-Pilates")
-    details  = quote(f"Cita de {cita.tipo} en Elysium Fisio-Pilates.")
+    text     = quote(f"Cita {cita.tipo} – {tenant_nombre}")
+    details  = quote(f"Cita de {cita.tipo} en {tenant_nombre}.")
     return (
         "https://calendar.google.com/calendar/render?action=TEMPLATE"
         f"&text={text}&dates={dates}&details={details}"
-        f"&location={quote('Elysium Fisio-Pilates')}"
+        f"&location={quote(tenant_nombre)}"
     )
 
 
@@ -63,7 +90,7 @@ def _plan_block(plan) -> str:
 
 # ── Base template ─────────────────────────────────────────────────────────────
 
-def _base_template(title: str, content: str) -> str:
+def _base_template(title: str, content: str, tenant_nombre: str) -> str:
     return f"""<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -82,7 +109,7 @@ def _base_template(title: str, content: str) -> str:
           <!-- Header -->
           <tr>
             <td style="background-color:#0f172a;border-radius:16px 16px 0 0;padding:32px;text-align:center;">
-              <p style="margin:0;font-size:22px;font-weight:300;color:#ffffff;letter-spacing:6px;text-transform:uppercase;">Elysium</p>
+              <p style="margin:0;font-size:22px;font-weight:300;color:#ffffff;letter-spacing:6px;text-transform:uppercase;">{tenant_nombre}</p>
               <p style="margin:6px 0 0;font-size:10px;color:#a1a1aa;letter-spacing:3px;text-transform:uppercase;">
                 Fisioterapia &amp; Pilates
               </p>
@@ -99,7 +126,7 @@ def _base_template(title: str, content: str) -> str:
           <!-- Footer -->
           <tr>
             <td style="background-color:#e2e8f0;border-radius:0 0 16px 16px;padding:24px 40px;text-align:center;">
-              <p style="margin:0 0 4px;font-size:12px;color:#94a3b8;font-weight:600;">Elysium Fisio-Pilates</p>
+              <p style="margin:0 0 4px;font-size:12px;color:#94a3b8;font-weight:600;">{tenant_nombre}</p>
               <p style="margin:0;font-size:11px;color:#cbd5e1;">
                 Este mensaje fue generado automáticamente. Por favor no respondas a este correo.
               </p>
@@ -116,10 +143,12 @@ def _base_template(title: str, content: str) -> str:
 
 # ── Confirmation template ─────────────────────────────────────────────────────
 
-def _build_confirmacion_html(nombre: str, cita, plan) -> str:
+def _build_confirmacion_html(nombre: str, cita, plan, tenant: Tenant) -> str:
     hora_fmt  = cita.hora.strftime("%H:%M")
     fecha_fmt = _fmt_fecha(cita.fecha)
-    cal_url   = _google_cal_url(cita)
+    cal_url   = _google_cal_url(cita, tenant.nombre_comercial)
+    color     = _brand_color(tenant)
+    portal    = _portal_url(tenant.slug)
 
     content = f"""
       <p style="color:#64748b;font-size:15px;margin:0 0 6px;">
@@ -129,11 +158,11 @@ def _build_confirmacion_html(nombre: str, cita, plan) -> str:
         ¡Tu cita está confirmada!
       </h2>
       <p style="color:#64748b;font-size:15px;margin:0 0 32px;">
-        Aquí tienes el resumen de tu reserva en Elysium.
+        Aquí tienes el resumen de tu reserva en {tenant.nombre_comercial}.
       </p>
 
       <!-- Cita card -->
-      <div style="background:linear-gradient(135deg,#27272a 0%,#3f3f46 100%);border-radius:16px;padding:28px;margin-bottom:28px;">
+      <div style="background:linear-gradient(135deg,{color} 0%,#3f3f46 100%);border-radius:16px;padding:28px;margin-bottom:28px;">
         <p style="color:#d4d4d8;font-size:11px;text-transform:uppercase;letter-spacing:2px;font-weight:700;margin:0 0 20px;">
           Detalles de la cita
         </p>
@@ -159,7 +188,7 @@ def _build_confirmacion_html(nombre: str, cita, plan) -> str:
           <tr>
             <td style="padding:10px 0;">
               <span style="color:#d4d4d8;font-size:11px;display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:1px;">Instructor</span>
-              <span style="color:#ffffff;font-size:18px;font-weight:700;">Equipo Elysium</span>
+              <span style="color:#ffffff;font-size:18px;font-weight:700;">Equipo {tenant.nombre_comercial}</span>
             </td>
           </tr>
         </table>
@@ -213,21 +242,23 @@ def _build_confirmacion_html(nombre: str, cita, plan) -> str:
 
       <!-- Portal CTA -->
       <div style="text-align:center;">
-        <a href="{PORTAL_URL}"
-           style="display:inline-block;background-color:#27272a;border-radius:12px;padding:16px 40px;font-size:15px;font-weight:700;color:#ffffff;text-decoration:none;letter-spacing:0.3px;">
+        <a href="{portal}"
+           style="display:inline-block;background-color:{color};border-radius:12px;padding:16px 40px;font-size:15px;font-weight:700;color:#ffffff;text-decoration:none;letter-spacing:0.3px;">
           Ver mi portal
         </a>
       </div>"""
 
-    return _base_template("Confirmación de cita – Elysium", content)
+    return _base_template(f"Confirmación de cita – {tenant.nombre_comercial}", content, tenant.nombre_comercial)
 
 
 # ── Reminder template ─────────────────────────────────────────────────────────
 
-def _build_recordatorio_html(nombre: str, cita, plan) -> str:
+def _build_recordatorio_html(nombre: str, cita, plan, tenant: Tenant) -> str:
     hora_fmt  = cita.hora.strftime("%H:%M")
     fecha_fmt = _fmt_fecha(cita.fecha)
-    cal_url   = _google_cal_url(cita)
+    cal_url   = _google_cal_url(cita, tenant.nombre_comercial)
+    color     = _brand_color(tenant)
+    portal    = _portal_url(tenant.slug)
 
     content = f"""
       <p style="color:#64748b;font-size:15px;margin:0 0 6px;">
@@ -241,7 +272,7 @@ def _build_recordatorio_html(nombre: str, cita, plan) -> str:
       </p>
 
       <!-- Cita card — reminder -->
-      <div style="background:linear-gradient(135deg,#27272a 0%,#3f3f46 100%);border-radius:16px;padding:28px;margin-bottom:28px;">
+      <div style="background:linear-gradient(135deg,{color} 0%,#3f3f46 100%);border-radius:16px;padding:28px;margin-bottom:28px;">
         <p style="color:#d4d4d8;font-size:11px;text-transform:uppercase;letter-spacing:2px;font-weight:700;margin:0 0 20px;">
           Tu cita de mañana
         </p>
@@ -267,7 +298,7 @@ def _build_recordatorio_html(nombre: str, cita, plan) -> str:
           <tr>
             <td style="padding:10px 0;">
               <span style="color:#d4d4d8;font-size:11px;display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:1px;">Instructor</span>
-              <span style="color:#ffffff;font-size:18px;font-weight:700;">Equipo Elysium</span>
+              <span style="color:#ffffff;font-size:18px;font-weight:700;">Equipo {tenant.nombre_comercial}</span>
             </td>
           </tr>
         </table>
@@ -321,13 +352,13 @@ def _build_recordatorio_html(nombre: str, cita, plan) -> str:
 
       <!-- Portal CTA -->
       <div style="text-align:center;">
-        <a href="{PORTAL_URL}"
-           style="display:inline-block;background-color:#27272a;border-radius:12px;padding:16px 40px;font-size:15px;font-weight:700;color:#ffffff;text-decoration:none;letter-spacing:0.3px;">
+        <a href="{portal}"
+           style="display:inline-block;background-color:{color};border-radius:12px;padding:16px 40px;font-size:15px;font-weight:700;color:#ffffff;text-decoration:none;letter-spacing:0.3px;">
           Gestionar mi cita
         </a>
       </div>"""
 
-    return _base_template("Recordatorio de cita – Elysium", content)
+    return _base_template(f"Recordatorio de cita – {tenant.nombre_comercial}", content, tenant.nombre_comercial)
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -353,11 +384,16 @@ def _send(to_email: str, subject: str, html: str) -> None:
         raise
 
 
-def _build_pago_html(nombre: str, venta) -> str:
+def _build_pago_html(nombre: str, venta, vigencia_dias: int, tenant: Tenant) -> str:
     _MONTHS = ["enero","febrero","marzo","abril","mayo","junio",
                "julio","agosto","septiembre","octubre","noviembre","diciembre"]
     _DAYS   = ["lunes","martes","miércoles","jueves","viernes","sábado","domingo"]
-    fecha_fmt = f"{_DAYS[venta.fecha.weekday()]} {venta.fecha.day} de {_MONTHS[venta.fecha.month-1]} de {venta.fecha.year}"
+    color   = _brand_color(tenant)
+    portal  = _portal_url(tenant.slug)
+    if venta.fecha_pago:
+        fecha_fmt = f"{_DAYS[venta.fecha_pago.weekday()]} {venta.fecha_pago.day} de {_MONTHS[venta.fecha_pago.month-1]} de {venta.fecha_pago.year}"
+    else:
+        fecha_fmt = "Pendiente de pago"
 
     def cop(v):
         return f"${v:,.0f}".replace(",", ".")
@@ -366,7 +402,7 @@ def _build_pago_html(nombre: str, venta) -> str:
     vencimiento_row = ""
     vencimiento_block = ""
     if venta.total_sesiones:
-        venc = venta.fecha + timedelta(days=45)
+        venc = venta.fecha_inicio + timedelta(days=vigencia_dias)
         venc_fmt = f"{_DAYS[venc.weekday()]} {venc.day} de {_MONTHS[venc.month-1]} de {venc.year}"
         sesiones_row = f"""
           <tr>
@@ -386,7 +422,7 @@ def _build_pago_html(nombre: str, venta) -> str:
       <div style="background:#f0fdf4;border-radius:12px;padding:20px;margin-bottom:28px;border:1px solid #bbf7d0;">
         <p style="color:#15803d;font-size:12px;font-weight:700;margin:0 0 10px;text-transform:uppercase;letter-spacing:0.5px;">📅 Vigencia del plan</p>
         <p style="color:#166534;font-size:14px;margin:0;line-height:1.9;">
-          Tienes <strong>45 días</strong> para usar todas tus sesiones.<br>
+          Tienes <strong>{vigencia_dias} días</strong> para usar todas tus sesiones.<br>
           Tu plan vence el <strong>{venc_fmt}</strong>.<br>
           Pasada esta fecha, las sesiones no utilizadas no podrán recuperarse.
         </p>
@@ -408,10 +444,10 @@ def _build_pago_html(nombre: str, venta) -> str:
         Confirmación de pago
       </h2>
       <p style="color:#64748b;font-size:15px;margin:0 0 32px;">
-        Hemos registrado tu pago en Elysium Fisio-Pilates. Aquí tienes el resumen.
+        Hemos registrado tu pago en {tenant.nombre_comercial}. Aquí tienes el resumen.
       </p>
 
-      <div style="background:linear-gradient(135deg,#27272a 0%,#3f3f46 100%);border-radius:16px;padding:28px;margin-bottom:28px;">
+      <div style="background:linear-gradient(135deg,{color} 0%,#3f3f46 100%);border-radius:16px;padding:28px;margin-bottom:28px;">
         <p style="color:#d4d4d8;font-size:11px;text-transform:uppercase;letter-spacing:2px;font-weight:700;margin:0 0 20px;">
           Detalle del pago
         </p>
@@ -457,37 +493,37 @@ def _build_pago_html(nombre: str, venta) -> str:
         {estado_badge}
       </div>
 
-      {"" if venta.saldo == 0 else f'''<div style="background:#fff7ed;border-radius:12px;padding:16px 20px;margin-bottom:28px;border:1px solid #fed7aa;"><p style="color:#92400e;font-size:13px;margin:0;line-height:1.7;">⚠️ <strong>Recuerda:</strong> Tienes un saldo pendiente de <strong>{cop(venta.saldo)}</strong>. Por favor comunícate con Elysium para completar tu pago.</p></div>'''}
+      {"" if venta.saldo == 0 else f'''<div style="background:#fff7ed;border-radius:12px;padding:16px 20px;margin-bottom:28px;border:1px solid #fed7aa;"><p style="color:#92400e;font-size:13px;margin:0;line-height:1.7;">⚠️ <strong>Recuerda:</strong> Tienes un saldo pendiente de <strong>{cop(venta.saldo)}</strong>. Por favor comunícate con {tenant.nombre_comercial} para completar tu pago.</p></div>'''}
 
       <div style="text-align:center;">
-        <a href="{PORTAL_URL}"
-           style="display:inline-block;background-color:#27272a;border-radius:12px;padding:16px 40px;font-size:15px;font-weight:700;color:#ffffff;text-decoration:none;letter-spacing:0.3px;">
+        <a href="{portal}"
+           style="display:inline-block;background-color:{color};border-radius:12px;padding:16px 40px;font-size:15px;font-weight:700;color:#ffffff;text-decoration:none;letter-spacing:0.3px;">
           Ver mi portal
         </a>
       </div>"""
 
-    return _base_template("Confirmación de pago – Elysium", content)
+    return _base_template(f"Confirmación de pago – {tenant.nombre_comercial}", content, tenant.nombre_comercial)
 
 
-def send_confirmacion_pago(nombre: str, email: str, venta) -> None:
+def send_confirmacion_pago(nombre: str, email: str, venta, tenant: Tenant, vigencia_dias: int) -> None:
     try:
-        html = _build_pago_html(nombre, venta)
+        html = _build_pago_html(nombre, venta, vigencia_dias, tenant)
         _send(email, f"✅ Confirmación de pago – {venta.nombre_paquete}", html)
     except Exception:
         logger.exception("Error enviando confirmación de pago a %s", email)
 
 
-def send_confirmacion(nombre: str, email: str, cita, plan=None) -> None:
+def send_confirmacion(nombre: str, email: str, cita, tenant: Tenant, plan=None) -> None:
     try:
-        html = _build_confirmacion_html(nombre, cita, plan)
+        html = _build_confirmacion_html(nombre, cita, plan, tenant)
         _send(email, f"✅ Cita confirmada – {cita.tipo} el {_fmt_fecha(cita.fecha)}", html)
     except Exception:
         logger.exception("Error enviando confirmación a %s", email)
 
 
-def send_recordatorio(nombre: str, email: str, cita, plan=None) -> None:
+def send_recordatorio(nombre: str, email: str, cita, tenant: Tenant, plan=None) -> None:
     try:
-        html = _build_recordatorio_html(nombre, cita, plan)
+        html = _build_recordatorio_html(nombre, cita, plan, tenant)
         _send(email, f"🔔 Recordatorio: mañana tienes {cita.tipo} a las {cita.hora.strftime('%H:%M')}", html)
     except Exception:
         logger.exception("Error enviando recordatorio a %s", email)

@@ -4,14 +4,13 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, field_validator
 from sqlalchemy.orm import Session
 from auth.jwt import require_medico
-from database import get_db
+from core.servicios import capacidad, descripcion_ventana, hora_valida, tipos_validos
+from database import current_tenant_id, get_db
+from middleware.tenant import get_current_tenant
 from models.cita import Cita
 from models.paciente import Paciente
+from models.tenant import Tenant
 from services.email import send_confirmacion
-
-TIPOS_VALIDOS = {"Fisioterapia", "Pilates"}
-CAPACIDAD     = {"Fisioterapia": 2, "Pilates": 6}
-TURNOS        = ((time(7, 0), time(11, 0)), (time(14, 0), time(18, 0)))
 
 router = APIRouter()
 
@@ -36,21 +35,8 @@ class MedicoCitaCreate(BaseModel):
             raise ValueError("Este campo es requerido")
         return v
 
-    @field_validator("hora")
-    @classmethod
-    def hora_valida(cls, v: time) -> time:
-        if v.minute not in (0, 30) or v.second != 0:
-            raise ValueError("La hora debe ser en punto (:00) o y media (:30)")
-        if not any(ini <= v <= fin for ini, fin in TURNOS):
-            raise ValueError("Horario fuera de ventana permitida (07:00–11:00 · 14:00–18:00)")
-        return v
-
-    @field_validator("tipo")
-    @classmethod
-    def tipo_valido(cls, v: str) -> str:
-        if v not in TIPOS_VALIDOS:
-            raise ValueError(f"Tipo inválido. Opciones: {', '.join(TIPOS_VALIDOS)}")
-        return v
+    # hora/tipo validity depend on the tenant's config — checked in
+    # crear_cita_medico()'s body instead (see routes/citas.py for why).
 
 
 class MedicoCitaOut(BaseModel):
@@ -102,11 +88,25 @@ def crear_cita_medico(
     data: MedicoCitaCreate,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
+    tenant: Tenant = Depends(get_current_tenant),
     current_user: dict = Depends(require_medico),
 ):
-    pac = db.get(Paciente, data.cedula)
+    # Médico-referred citas never offer "Sesión de cortesía" — real servicios only.
+    tipos = tipos_validos(db, tenant, incluir_cortesia=False)
+    if data.tipo not in tipos:
+        raise HTTPException(
+            status_code=422, detail=f"Tipo inválido. Opciones: {', '.join(sorted(tipos))}"
+        )
+    if not hora_valida(tenant, data.hora):
+        raise HTTPException(
+            status_code=422, detail=f"Horario fuera de ventana permitida ({descripcion_ventana(tenant)})"
+        )
+
+    tenant_id = current_tenant_id.get()
+    pac = db.get(Paciente, (tenant_id, data.cedula))
     if not pac:
         pac = Paciente(
+            tenant_id=tenant_id,
             Paciente=data.cedula,
             nombre=data.nombre,
             telefono=data.telefono,
@@ -121,7 +121,8 @@ def crear_cita_medico(
         Cita.tipo == data.tipo,
         Cita.estado.notin_(["cancelada"]),
     ).count()
-    if ocupados >= CAPACIDAD[data.tipo]:
+    cap = capacidad(db, data.tipo)
+    if cap is None or ocupados >= cap:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Slot lleno para {data.tipo} el {data.fecha} a las {data.hora.strftime('%H:%M')}",
@@ -129,6 +130,7 @@ def crear_cita_medico(
 
     row = Cita(
         id=str(uuid.uuid4()),
+        tenant_id=tenant_id,
         paciente_id=data.cedula,
         fecha=data.fecha,
         hora=data.hora,
@@ -143,7 +145,7 @@ def crear_cita_medico(
     db.refresh(pac)
 
     if pac.email:
-        background_tasks.add_task(send_confirmacion, pac.nombre, pac.email, row, None)
+        background_tasks.add_task(send_confirmacion, pac.nombre, pac.email, row, tenant, None)
 
     return MedicoCitaOut(
         id=row.id,

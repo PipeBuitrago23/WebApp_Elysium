@@ -2,21 +2,11 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CheckCircle, LogOut, Stethoscope } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useTenant } from '../context/TenantContext';
+import { buildSlots } from '../utils/schedule';
 import { getMisCitas, crearCitaMedico } from '../api/medicoPortal';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-
-const TIPOS = ['Fisioterapia', 'Pilates'];
-
-const VALID_SLOTS = [];
-for (let h = 7; h <= 11; h++) {
-  VALID_SLOTS.push(`${String(h).padStart(2, '0')}:00`);
-  if (h < 11) VALID_SLOTS.push(`${String(h).padStart(2, '0')}:30`);
-}
-for (let h = 14; h <= 18; h++) {
-  VALID_SLOTS.push(`${String(h).padStart(2, '0')}:00`);
-  if (h < 18) VALID_SLOTS.push(`${String(h).padStart(2, '0')}:30`);
-}
 
 const ESTADO_STYLE = {
   programada:                    'bg-blue-100 text-blue-700',
@@ -113,6 +103,9 @@ function MisCitas({ citas, loading, error }) {
 
 export default function MedicoPortalPage() {
   const { user, logout } = useAuth();
+  const { tenant, servicios, horario } = useTenant();
+  const TIPOS = servicios.map((s) => s.nombre);
+  const VALID_SLOTS = buildSlots(horario);
   const navigate = useNavigate();
   const [tab, setTab] = useState('citas');
 
@@ -181,7 +174,7 @@ export default function MedicoPortalPage() {
       <div className="bg-zinc-950 py-5 px-4">
         <div className="max-w-3xl mx-auto flex items-center justify-between">
           <div className="text-center flex-1">
-            <h1 className="text-lg font-light tracking-widest uppercase text-white">Elysium</h1>
+            <h1 className="text-lg font-light tracking-widest uppercase text-white">{tenant.nombre_comercial}</h1>
             <p className="text-[10px] text-zinc-400 uppercase tracking-widest mt-1">Portal Médico en Convenio</p>
           </div>
           <button
