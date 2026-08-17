@@ -23,7 +23,13 @@ Stack: **React (CRA)** + **FastAPI** + **PostgreSQL** en monorepo `PipeBuitrago2
 
 ## Credenciales de prueba
 
-| Rol | Email | Contrasena |
+> Estos son los valores del **seed local** (`_seed_admin`/`_seed_paciente`) —
+> los mismos que documentan README.md y CLAUDE.md para desarrollo. En
+> producción, `admin@elysium.com` tiene una contraseña real distinta (el seed
+> solo crea la cuenta si no existe; nunca sobreescribe la de prod). No uses
+> estas contraseñas como si fueran las de producción.
+
+| Rol | Email | Contrasena (solo local/seed) |
 |---|---|---|
 | Administrador | admin@elysium.com | admin123 |
 | Paciente demo | paciente@elysium.com | paciente123 |
@@ -49,12 +55,19 @@ Stack: **React (CRA)** + **FastAPI** + **PostgreSQL** en monorepo `PipeBuitrago2
 | Builder | Dockerfile (auto-detectado) |
 | Start Command | `sh -c 'uvicorn main:app --host 0.0.0.0 --port $PORT'` |
 
-Variables de entorno del backend:
+Variables de entorno del backend (valores reales SOLO en Railway, nunca aquí):
 ```
 DATABASE_URL=${{Postgres.DATABASE_URL}}
-JWT_SECRET_KEY=elysium-secret-key-produccion-2026-muy-segura
+JWT_SECRET_KEY=<configurar en Railway — NO commitear>
 ALLOWED_ORIGINS=https://webappelysium-production.up.railway.app,https://marvelous-illumination-production-a83b.up.railway.app
 ```
+
+> ⚠️ La `JWT_SECRET_KEY` real vivía aquí en texto plano en un repo **público**
+> — quien la leyera podía forjar tokens de admin sin login (RLS no protege
+> contra un JWT válido). Fue **rotada** y este archivo redactado. La clave
+> anterior queda en el historial de git pero ya no sirve tras la rotación.
+> Regla desde ahora: ningún secreto real en este archivo — solo el nombre de
+> la variable; el valor se configura únicamente en el dashboard de Railway.
 
 ### Frontend (marvelous-illumination)
 
