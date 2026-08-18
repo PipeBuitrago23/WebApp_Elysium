@@ -30,6 +30,7 @@ from routes import ventas
 from routes import gastos
 from routes import tenant as tenant_router
 from routes import superadmin_auth
+from routes import superadmin_tenants
 from routes.citas import procesar_citas_vencidas
 from services.email import send_recordatorio
 
@@ -301,6 +302,7 @@ app.include_router(tenant_router.router, prefix="/tenant", tags=["tenant"])
 # Exempted from tenant resolution by TenantMiddleware (path starts with
 # /superadmin). superadmin_tenants (CRUD) is mounted here too in sub-phase 3.3.
 app.include_router(superadmin_auth.router, prefix="/superadmin/auth", tags=["superadmin-auth"])
+app.include_router(superadmin_tenants.router, prefix="/superadmin/tenants", tags=["superadmin-tenants"])
 
 # Tier "completo" only — see core/features.py:PLAN_FEATURES. Tier "basico"
 # routers (citas, pacientes, pagos, portal, auth) are available to every

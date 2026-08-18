@@ -24,31 +24,14 @@ Uso:
 """
 import argparse
 import os
-import re
-import secrets
 import sys
-import uuid
 
-import bcrypt
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from core.constants import MAX_PASSWORD_BYTES, RESERVED_SLUGS  # noqa: E402
-from models.servicio import Servicio  # noqa: E402
-from models.tenant import Tenant  # noqa: E402
-from models.usuario import Usuario  # noqa: E402
-
-_SLUG_RE = re.compile(r"^[a-z0-9-]{3,30}$")
-
-# Mismos valores base que la fila seed de Elysium (migración 0002) — un
-# tenant nuevo puede editarlos después desde la tabla servicios directamente,
-# no hay UI todavía.
-DEFAULT_SERVICIOS = [
-    {"nombre": "Pilates", "capacidad": 6, "duracion_min": 60},
-    {"nombre": "Fisioterapia", "capacidad": 2, "duracion_min": 60},
-]
+from core.tenants import DEFAULT_SERVICIOS, crear_tenant, validar_slug  # noqa: E402
 
 
 def _database_url() -> str:
@@ -56,19 +39,6 @@ def _database_url() -> str:
     if url.startswith("postgresql://"):
         url = url.replace("postgresql://", "postgresql+psycopg2://", 1)
     return url
-
-
-def validar_slug(slug: str, db) -> list[str]:
-    errores = []
-    if not _SLUG_RE.match(slug):
-        errores.append(
-            "El slug debe tener 3-30 caracteres: solo minúsculas, números y guiones ([a-z0-9-])."
-        )
-    if slug in RESERVED_SLUGS:
-        errores.append(f"'{slug}' es un slug reservado ({', '.join(sorted(RESERVED_SLUGS))}).")
-    if db.query(Tenant).filter(Tenant.slug == slug).first():
-        errores.append(f"Ya existe un tenant con slug '{slug}'.")
-    return errores
 
 
 def main() -> None:
@@ -88,7 +58,7 @@ def main() -> None:
     db = Session()
 
     try:
-        errores = validar_slug(slug, db)
+        errores = validar_slug(db, slug)
         if errores:
             for e in errores:
                 print(f"✗ {e}")
@@ -104,35 +74,10 @@ def main() -> None:
             print("\n(--dry-run: no se escribió nada)")
             return
 
-        password = secrets.token_urlsafe(12)
-        hashed = bcrypt.hashpw(password.encode()[:MAX_PASSWORD_BYTES], bcrypt.gensalt()).decode()
-
-        tenant = Tenant(
-            id=str(uuid.uuid4()),
-            slug=slug,
-            nombre_comercial=args.nombre,
-            plan=args.plan,
-            estado="activo",
-            timezone="America/Bogota",
-            branding={},
-            config={},
-            features_override={},
+        _, password = crear_tenant(
+            db, slug=slug, nombre=args.nombre, plan=args.plan,
+            admin_email=args.admin_email, admin_nombre=args.admin_nombre,
         )
-        db.add(tenant)
-        db.flush()  # necesita tenant.id para las FKs de abajo
-
-        for s in DEFAULT_SERVICIOS:
-            db.add(Servicio(tenant_id=tenant.id, activo=True, **s))
-
-        db.add(Usuario(
-            id=str(uuid.uuid4()),
-            tenant_id=tenant.id,
-            email=args.admin_email,
-            hashed_password=hashed,
-            nombre=args.admin_nombre,
-            es_admin=True,
-        ))
-
         db.commit()
         print(f"\n✓ Tenant '{slug}' creado.")
         print(f"  Contraseña temporal del admin ({args.admin_email}): {password}")
