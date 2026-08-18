@@ -33,7 +33,25 @@ def upgrade() -> None:
     op.alter_column("ventas", "fecha", new_column_name="fecha_pago")
     op.alter_column("ventas", "fecha_pago", existing_type=sa.Date(), nullable=True)
     op.add_column("ventas", sa.Column("fecha_inicio", sa.Date(), nullable=True))
+    # Backfill fecha_inicio from fecha_pago (the pre-rename `fecha`, which was
+    # NOT NULL, so every existing row gets a real value — fecha_inicio is the
+    # plan's start date and drives fecha_vencimiento in core/planes.py, so the
+    # sale date is the right historical value).
+    #
+    # RLS gotcha (found migrating real production data): this migration may run
+    # as a NON-superuser role that owns the tables (app_user), and 0003 put
+    # FORCE ROW LEVEL SECURITY on `ventas`, which subjects even the owner to
+    # the tenant_isolation policy. A migration sets no `app.tenant_id`, so the
+    # policy filters every row out and this UPDATE would touch 0 rows, leaving
+    # fecha_inicio NULL and making the SET NOT NULL below fail with
+    # "column ... contains null values". Dropping RLS enforcement just for the
+    # backfill (restored immediately after) makes it see every row regardless
+    # of the running role. A superuser (the DATABASE_URL role Alembic is meant
+    # to use) already bypasses RLS, so there this is a harmless no-op.
+    op.execute("ALTER TABLE ventas DISABLE ROW LEVEL SECURITY")
     op.execute("UPDATE ventas SET fecha_inicio = fecha_pago WHERE fecha_inicio IS NULL")
+    op.execute("ALTER TABLE ventas ENABLE ROW LEVEL SECURITY")
+    op.execute("ALTER TABLE ventas FORCE ROW LEVEL SECURITY")
     op.alter_column("ventas", "fecha_inicio", existing_type=sa.Date(), nullable=False)
     op.alter_column("pagos", "fecha_pago", existing_type=sa.Date(), nullable=True)
 

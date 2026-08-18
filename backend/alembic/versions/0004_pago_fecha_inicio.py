@@ -39,7 +39,20 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     op.execute("ALTER TABLE pagos ADD COLUMN IF NOT EXISTS fecha_inicio DATE")
+    # Backfill must bypass RLS — same reasoning as 0005 (see its upgrade()):
+    # if this migration runs as a non-superuser table owner (app_user), the
+    # FORCE ROW LEVEL SECURITY from 0003 filters every row out of the UPDATE
+    # (no app.tenant_id in a migration) and the SET NOT NULL below then fails.
+    # In real production this step happened to pass only because pagos already
+    # had fecha_inicio populated by main's old raw-SQL _run_migrations() before
+    # Alembic ran — a fresh DB migrated as app_user would fail here exactly like
+    # 0005 did. Dropping RLS enforcement for the backfill (restored right after)
+    # makes it correct regardless of the running role; a superuser bypasses RLS
+    # anyway, so this is a no-op there.
+    op.execute("ALTER TABLE pagos DISABLE ROW LEVEL SECURITY")
     op.execute("UPDATE pagos SET fecha_inicio = fecha_pago WHERE fecha_inicio IS NULL")
+    op.execute("ALTER TABLE pagos ENABLE ROW LEVEL SECURITY")
+    op.execute("ALTER TABLE pagos FORCE ROW LEVEL SECURITY")
     op.alter_column("pagos", "fecha_inicio", nullable=False)
 
 
