@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Elysium Fisio-Pilates** — appointment scheduling PWA for a single-location physiotherapy/pilates clinic. Access is primarily driven by scanning a QR Code or opening a direct link, guiding users to a lightweight registration screen.
 
-> **Multi-tenant conversion in progress (`feature/multi-tenant` branch, off `main`):** Phase 1 of 4 (data layer, tenant context, config system) is **complete**. **Phase 2 (subdomain routing) is complete** (2.2 frontend runtime URL/tenant resolution, 2.3 backend reserved-slug + suspended-tenant checks, 2.4 dynamic CORS, 2.5 per-tenant email branding, 2.6 `crear_tenant.py` onboarding script) — see "Multi-Tenancy" section below, in particular "Phase 2". Elysium is still the only tenant in practice, but every table is now tenant-scoped with Row-Level Security, business rules are per-tenant config instead of hardcoded, and the app is ready to actually route by subdomain once wildcard DNS is connected. Not yet built: tenant admin UI, wildcard DNS itself, WhatsApp, self-service onboarding, billing — those are Phases 3–4.
+> **Multi-tenant conversion (`main` + `feature/superadmin`):** Phase 1 (data layer, tenant context, config system) and Phase 2 (subdomain routing — runtime URL/tenant resolution, reserved-slug + suspended-tenant checks, dynamic CORS, per-tenant email branding, `crear_tenant.py`) are **complete and merged to `main`** (Railway deploys from `main`). **Phase 3 (superadmin panel) is code-complete on the `feature/superadmin` branch, not yet merged/deployed** — a platform-level operator UI to list/create/edit tenants (plan, estado, config, branding, features) without the CLI; see "Multi-Tenancy → Phase 3" below. Elysium is still the only tenant in practice. Not yet built: wildcard DNS itself (the code supports the scheme), WhatsApp, self-service onboarding, billing — those are Phase 4.
 
 ### User Roles & Permissions
 - **Admin / Staff (Fisioterapeuta):**
@@ -138,6 +138,7 @@ docker compose exec backend alembic downgrade -1
 - `0003_rls` — `ENABLE`/`FORCE ROW LEVEL SECURITY` + `tenant_isolation` policy on every tenant-scoped table. Kept separate from `0002` so a rollback of the RLS policy doesn't require re-running the riskier key-reconstruction migration. See "Multi-Tenancy" below for what this actually does.
 - `0004_pago_fecha_inicio` — adds `pagos.fecha_inicio` (nullable → backfilled from `fecha_pago` → `SET NOT NULL`), so `fecha_vencimiento` is computed from the plan's start date instead of its payment date (see Critical Design Rule #3). The backfill `DISABLE`s/`ENABLE`s+`FORCE`s RLS around the `UPDATE` — see Critical Design Rule #17 and the migration docstring.
 - `0005_venta_pago_link` — renames `ventas.fecha`→`fecha_pago` (nullable), adds `ventas.fecha_inicio` (backfilled from `fecha_pago` → `SET NOT NULL`), makes `pagos.fecha_pago` nullable — lets a `Venta` create its linked `Pago`(s). Same RLS-bypass around the `ventas.fecha_inicio` backfill as `0004` (Critical Design Rule #17). This is the migration that crash-looped the real production deploy (backfill silently updated 0 rows under `FORCE` RLS when run as the non-superuser table owner) until the RLS-bypass was added — the fix was verified end-to-end against a copy of production data.
+- `0006_operadores` (`feature/superadmin`, not on `main` yet) — creates the `operadores` table (platform-level superadmin identity) **without** `tenant_id` and deliberately **not** in the RLS list (a superadmin must see every tenant). `REVOKE ALL ... FROM app_user` (guarded with a `DO` block in case that role doesn't exist yet) so the tenant runtime role can never read superadmin credentials — counteracts the `ALTER DEFAULT PRIVILEGES` grant in `bootstrap_app_role.sql`. See "Multi-Tenancy → Phase 3".
 
 ## Architecture
 
@@ -158,7 +159,11 @@ alembic/             # env.py + versions/ — schema migrations (see "Database M
 limiter.py           # slowapi Limiter instance shared across routers
 auth/
   jwt.py             # create_access_token / verify_token / get_current_user (validates JWT tenant_id
-                     #   against request.state.tenant_id) / require_admin / require_medico
+                     #   against request.state.tenant_id; also 401s any token with tipo=="superadmin") /
+                     #   require_admin / require_medico
+  superadmin.py      # Phase 3 — create_superadmin_token / require_superadmin. Signs with a SEPARATE secret
+                     #   (SUPERADMIN_JWT_SECRET); require_superadmin re-checks the operador exists+activo on
+                     #   every request. See "Multi-Tenancy → Phase 3"
 core/
   features.py        # PLAN_FEATURES, features_efectivas(tenant), require_feature(nombre) router dependency
   servicios.py       # capacidad() / tipos_validos() / hora_valida() / descripcion_ventana() — tenant-aware
@@ -171,12 +176,22 @@ core/
                      #   sesiones creates its Pago(s) through this same helper)
   constants.py        # METODOS_PAGO, MAX_PASSWORD_BYTES, RESERVED_SLUGS — deduplicated / infra reservations,
                      #   NOT tenant config (see Multi-Tenancy)
+  tenants.py         # Phase 3 — validar_slug() / crear_tenant() (tenant + 2 servicios + admin in one tx,
+                     #   sin commitear). Shared by scripts/crear_tenant.py (CLI) AND routes/superadmin_tenants.py
+                     #   so both create identical tenants. Caller provides a Session bound to an RLS-bypassing
+                     #   connection (DATABASE_URL).
+  superadmin_db.py   # Phase 3 — own engine/SessionLocal bound to DATABASE_URL (bypasses RLS), separate from
+                     #   database.py (no tenant-context "begin" listener). get_superadmin_db dependency. Same
+                     #   pattern as crear_tenant.py, so superadmin routes see/modify all tenants at once.
 middleware/
-  tenant.py          # TenantMiddleware (subdomain → X-Tenant-Slug [non-prod] → 404) + get_current_tenant dep
-                     #   a RESERVED_SLUGS slug is never looked up; a resolved tenant with estado="suspendido"
-                     #   404s the same as not-found (Phase 2.3)
+  tenant.py          # TenantMiddleware (subdomain → X-Tenant-Slug [non-prod] → DEFAULT_TENANT_SLUG → 404) +
+                     #   get_current_tenant dep. A RESERVED_SLUGS slug is never looked up; a resolved tenant
+                     #   with estado="suspendido" 404s the same as not-found (Phase 2.3). Paths starting with
+                     #   /superadmin (and /health) skip tenant resolution entirely (Phase 3)
 models/
   tenant.py          # Tenant table + DEFAULT_CONFIG + Tenant.get_config(ruta, default) — see Multi-Tenancy
+  operador.py        # Phase 3 — Operador (platform superadmin): id, email UNIQUE, hashed_password, nombre,
+                     #   activo, created_at, ultimo_login. No tenant_id, no RLS. See "Multi-Tenancy → Phase 3"
   servicio.py        # Servicio table — per-tenant service catalog (nombre, capacidad, duracion_min)
   paciente.py        # Paciente table — composite PK (tenant_id, "Paciente") · habeas_data_aceptado · fecha_aceptacion_habeas
   usuario.py         # Staff/admin/patient/médico users — tenant_id, UNIQUE(tenant_id,id), UNIQUE(tenant_id,email) · bcrypt · es_admin · es_medico · habeas_data_aceptado
@@ -191,6 +206,13 @@ routes/
                      #   POST /auth/aceptar-habeas → persists consent + timestamps (requires JWT)
                      #   POST /auth/cambiar-password → any logged-in Usuario changes their own password (requires JWT)
   tenant.py          # GET /tenant/config — public, no JWT: nombre_comercial/branding/features/servicios/horario/sesion_cortesia
+  superadmin_auth.py # Phase 3 — POST /superadmin/auth/login (rate-limited 5/min, bcrypt, updates ultimo_login)
+                     #   → superadmin JWT. Uses get_superadmin_db (DATABASE_URL). No tenant involved
+  superadmin_tenants.py # Phase 3 — require_superadmin on every route: GET /superadmin/tenants (list),
+                     #   GET /superadmin/tenants/{slug} (detail + servicios), POST (create via core/tenants.py,
+                     #   returns temp password once), PATCH (plan/estado/branding/config/features_override —
+                     #   JSONB fields replaced wholesale). Audit logger (superadmin.audit, own INFO handler)
+                     #   logs create/update with operador + tenant + changes. Never logs passwords
   pacientes.py       # Full CRUD /pacientes/ — require_admin
   citas.py           # Full CRUD /citas/ + background job procesar_citas_vencidas() — require_admin
                      #   CitaOut includes medico_id/medico_nombre/motivo_remision (resolved via _citas_out helper)
@@ -238,6 +260,10 @@ scripts/
                      #   never APP_DATABASE_URL, since a brand-new tenant has no RLS context yet and the
                      #   non-superuser app_user connection would have its INSERTs silently rejected by RLS's
                      #   WITH CHECK. Admin password: secrets.token_urlsafe(12), printed once, never logged.
+                     #   The tenant/servicios/admin creation itself now lives in core/tenants.py (shared w/ the
+                     #   superadmin endpoint); this CLI is a thin wrapper (argparse + engine + commit).
+  crear_operador.py  # Phase 3 — CLI to bootstrap the first superadmin (Operador): --email/--nombre/--dry-run,
+                     #   temp password printed once. Mirror of crear_tenant.py; connects with DATABASE_URL.
 ```
 
 > **bcrypt note:** `passlib[bcrypt]` is installed but NOT used — passlib 1.7.4 is incompatible with bcrypt 4.x (raises ValueError on startup). All password hashing uses `import bcrypt` directly.
@@ -246,9 +272,14 @@ scripts/
 
 ```
 index.js                    # Entry, imports index.css (Tailwind)
-App.js                      # TenantProvider > AuthProvider > Routes + HabeasDataModal
+App.js                      # Branches at the top: host admin.* OR path /superadmin → <SuperadminApp/> (Phase 3,
+                            #   a separate tree OUTSIDE TenantProvider/AuthProvider). Otherwise the tenant app:
+                            #   TenantProvider > AuthProvider > Routes + HabeasDataModal
                             #   HabeasDataModal: z-[100] backdrop-blur overlay for habeas_data_aceptado=false
                             #   PolicyContent: reusable legal text component (Ley 1581/2012) — NOT tenant-dynamic (see Multi-Tenancy)
+SuperadminApp.js            # Phase 3 — the superadmin panel tree: SuperadminAuthProvider + BrowserRouter + Guard.
+                            #   Routes: /superadmin/login, /superadmin (tenants list), /superadmin/tenants/:slug.
+                            #   Never wrapped in TenantProvider (no tenant to resolve)
 index.css                   # @tailwind base/components/utilities
 config/
   runtime.js                 # NEW (Fase 2.2) — derives apiUrl/tenantSlug from window.location.hostname at
@@ -272,6 +303,9 @@ api/
   medicoPortal.js           # getMisCitas, crearCitaMedico — médico self-service
   ventas.js                 # getVentas, createVenta, deleteVenta
   gastos.js                 # getGastos, createGasto, deleteGasto
+  superadminClient.js       # Phase 3 — separate axios instance for the superadmin panel: own token
+                            #   (elysium_superadmin_token), NO X-Tenant-Slug; 401 interceptor clears session
+  superadmin.js             # Phase 3 — superadminLogin · getTenants · getTenant · createTenant · updateTenant
 constants/
   packages.js               # METODOS_PAGO · CATEGORIAS · PACKAGES catalog (Pilates individual+x2, Fisioterapia, Combos, Prendas de Vestir)
                             #   Billing/catalog data — explicitly NOT converted to tenant config in Phase 1
@@ -280,6 +314,8 @@ context/
                             # login() returns decoded payload · acceptHabeas() updates user state in-memory
   TenantContext.js          # TenantProvider, useTenant() — GET /tenant/config on mount, exposes
                             #   { tenant, features, servicios, horario, sesionCortesia, tiposCita, hasFeature() }
+  SuperadminAuthContext.js  # Phase 3 — SuperadminAuthProvider, useSuperadminAuth(). Own token (key:
+                            #   elysium_superadmin_token), separate from AuthContext. login/logout/isAuthenticated
 utils/
   schedule.js                # buildSlots(horario) — generates the time-slot list from horario.bloques/intervalo_min,
                             #   replaces the identical hardcoded loop that used to be copied in 3 pages
@@ -327,6 +363,10 @@ pages/
                             #   PAID/PENDING badges (pendiente now orange, not red — red is reserved for errors),
                             #   summary cards (total, ingresos mes, pendientes)
   GastosPage.js             # Expense module: NuevoGastoModal (nombre, nit optional, valor, metodo_pago, descripcion)
+  SuperadminLoginPage.js    # Phase 3 — superadmin login (dark theme, own auth context)
+  SuperadminTenantsPage.js  # Phase 3 — tenants table + "Nuevo tenant" modal (shows the temp admin password once)
+  SuperadminTenantDetailPage.js # Phase 3 — tenant detail/edit: plan/estado selects, branding/config/
+                            #   features_override JSON textareas (partial PATCH: only changed fields), servicios read-only
 ```
 
 ### Routing structure
@@ -459,6 +499,20 @@ A patient can have **more than one active `Pago` at once** (e.g. Pilates + Fisio
 | activo | Boolean | default true |
 
 "Sesión de cortesía" has **no row here** — see "Multi-Tenancy" below.
+
+### Data model — `operadores` table (Phase 3, `feature/superadmin`)
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | UUID | PK, `gen_random_uuid()` |
+| email | String | UNIQUE — the operador's login |
+| hashed_password | String | bcrypt |
+| nombre | String | display name |
+| activo | Boolean | default true — set false to suspend (cuts already-issued tokens) |
+| created_at | Timestamp | |
+| ultimo_login | Timestamp (nullable) | updated on each successful login |
+
+Platform-level superadmin identity — **no `tenant_id`, no RLS policy** (same level as `tenants`). `app_user` (the tenant runtime role) is `REVOKE`d from this table, so superadmin credentials are unreachable through any tenant request. Only the superadmin DB connection (`DATABASE_URL`, bypasses RLS) touches it. See "Multi-Tenancy → Phase 3".
 
 ### Patient registration flow
 
@@ -638,6 +692,21 @@ step for the DNS cutover phase. Tests: `tests/test_tenant_isolation.py`
 (fallback resolves when `Host` doesn't; 404 when unset; a real subdomain
 match still takes precedence over it).
 
+### Phase 3 (superadmin panel) — code-complete on `feature/superadmin`, not merged/deployed
+
+A platform-level operator UI to manage tenants without the CLI: list all tenants, create one (same result as `crear_tenant.py`), and edit plan / estado (suspend-reactivate) / config / branding / features_override. **Not** self-service for clients — still the platform owner provisioning each business, just from a screen. Billing/self-signup are Phase 4, not built.
+
+**Architectural constraint (the crux):** RLS assumes each app connection has a single active `tenant_id` (`SET LOCAL` per transaction). A superadmin must see/modify **all** tenants at once — incompatible with the runtime `app_user`/RLS connection. Same solution already precedented by `crear_tenant.py`: superadmin routes use their **own engine/session bound to `DATABASE_URL`** (the RLS-bypassing owner/superuser), via `core/superadmin_db.py:get_superadmin_db` — never `database.py`'s `app_user` engine. **This means the superadmin feature requires `DATABASE_URL` to be a role that bypasses RLS** (superuser/BYPASSRLS — the same requirement as Alembic; see the RLS-vs-migration gotcha). If `DATABASE_URL` pointed at `app_user`, cross-tenant reads would return nothing and tenant creation would fail on the `servicios`/`usuarios` INSERTs.
+
+- **3.1 — `operadores` + bootstrap:** `models/operador.py` + alembic `0006_operadores` (no `tenant_id`, no RLS, `REVOKE ALL FROM app_user`). `scripts/crear_operador.py` bootstraps the first superadmin (mirror of `crear_tenant.py`).
+- **3.2 — auth:** `auth/superadmin.py` — `create_superadmin_token` (JWT with `tipo="superadmin"`, no `tenant_id`, 4h) signed with a **separate secret** `SUPERADMIN_JWT_SECRET` (a leak of the tenant `JWT_SECRET_KEY` can't forge a superadmin token, and vice versa — directly responds to the earlier plaintext-secret incident; falls back to `JWT_SECRET_KEY` with a warning if unset). `require_superadmin` re-checks the operador still exists and is `activo` on every request. `auth/jwt.py:get_current_user` explicitly 401s any `tipo=="superadmin"` token (backstop for the degraded same-secret fallback — with a distinct secret it fails signature anyway). `routes/superadmin_auth.py`: `POST /superadmin/auth/login`, rate-limited 5/min.
+- **3.3 — tenant CRUD:** `core/tenants.py` extracts `validar_slug()`/`crear_tenant()` (now shared by the CLI and the endpoint — the CLI is a thin wrapper). `routes/superadmin_tenants.py`: list / detail / create / PATCH, audit-logged.
+- **3.4 — routing:** `TenantMiddleware` skips tenant resolution for any `/superadmin` path (like `/health`) — works in every environment, no dependence on the `admin.` host. CORS regex already allows `admin.<BASE_DOMAIN>`.
+- **3.5 — frontend:** `SuperadminApp.js` — a tree **outside** `TenantProvider`/`AuthProvider` (its own `SuperadminAuthContext`, token key `elysium_superadmin_token`, axios instance without `X-Tenant-Slug`). `App.js` branches to it by host (`admin.*`) or path (`/superadmin`).
+- **3.6 — tests:** `tests/test_superadmin.py` — cross-rejection **both** directions (superadmin JWT → tenant route = 401; tenant-admin JWT → superadmin route = 401), login rate limit, suspended-operador token invalidation, and CLI↔endpoint parity (identical tenant structure). Full suite 17/17.
+
+**To deploy Phase 3 (when merging `feature/superadmin` → `main`):** (1) `DATABASE_URL` must be the superuser `postgres` (so `0006` runs and superadmin bypasses RLS); (2) set `SUPERADMIN_JWT_SECRET` (distinct from `JWT_SECRET_KEY`); (3) run `crear_operador.py` in prod to create the first operador; (4) the frontend rebuilds with the panel included.
+
 ### Environment variables added
 
 | Variable | Where | Purpose |
@@ -647,6 +716,7 @@ match still takes precedence over it).
 | `REACT_APP_BASE_DOMAIN` | frontend | Phase 2.2. The real base domain (e.g. `elysium.app`) used to build `https://<slug>.api.<REACT_APP_BASE_DOMAIN>` outside `localhost`. Currently a harmless placeholder (`localhost`) in `docker-compose.yml` since local dev never takes that code path. |
 | `BASE_DOMAIN` | backend | Phase 2.4/2.5. Drives the CORS `allow_origin_regex` (`main.py`) and the email `_portal_url()` fallback (`services/email.py`). Unset in local dev (`docker-compose.yml` doesn't set it for the backend) — CORS falls back to `localhost:3000`-only and emails fall back to the `PORTAL_URL`/localhost default, both unchanged from before Phase 2. |
 | `DEFAULT_TENANT_SLUG` | backend | **Temporary, cutover-only** (see above) — production fallback tenant slug used only when the `Host`/`X-Tenant-Slug` resolution fails. Not set in local dev. Must be removed once wildcard DNS is connected — `docs/CUTOVER.md` has the removal step. |
+| `SUPERADMIN_JWT_SECRET` | backend | **Phase 3** (`feature/superadmin`) — signing secret for superadmin JWTs, **distinct from `JWT_SECRET_KEY`** so a leak of one can't forge the other. Falls back to `JWT_SECRET_KEY` with a warning if unset (degraded — logical separation via the `tipo` claim only). Set to a distinct value in prod. Dev value is in `docker-compose.yml`. |
 
 ## Current Status
 
@@ -680,6 +750,7 @@ match still takes precedence over it).
 - [x] **`feature/multi-tenant` mergeado a `main`:** todo el stack multi-tenant (Fase 1+2, prep de cutover, `DEFAULT_TENANT_SLUG`) está en `main` — Railway despliega desde `main`. Un solo commit de `main` divergía (`ebad4e9`, planes múltiples + `fecha_inicio`), funcionalmente equivalente a la Fase A ya incluida; los 7 conflictos se resolvieron a favor de `feature/multi-tenant`.
 - [x] **Revisión de seguridad (pre-lanzamiento):** matriz de ataque RLS cross-tenant (SELECT/UPDATE/DELETE/INSERT/tenant-hop, todos bloqueados); `X-Tenant-Slug` ignorado en `production`; JWT de otro tenant → 401; paciente → rutas admin → 403; `/docs` off en prod; rate limiting presente. **Bloqueador encontrado y resuelto:** `JWT_SECRET_KEY` de producción estaba en `DEPLOY_NOTES.md` en un repo público — demostrado explotable (forjar token admin sin login). Rotada en Railway + archivo redactado (la clave vieja queda en el historial de git pero, rotada, es inservible).
 - [x] **Fix de migración RLS (0004/0005):** el backfill de `fecha_inicio` corría 0 filas bajo `FORCE` RLS cuando la migración corre como el dueño no-superuser (`app_user`), crasheando el deploy real. Resuelto envolviendo el backfill en `DISABLE`/`ENABLE`+`FORCE` RLS. Ver "Row-Level Security → RLS-vs-migration gotcha" y Critical Design Rule #17.
+- [x] **Multi-tenancy — Fase 3 (panel superadmin) code-complete en `feature/superadmin` (no mergeado/deployado):** tabla `operadores` (sin RLS, `REVOKE` a `app_user`, migración `0006`) + `crear_operador.py`; auth de superadmin con secreto separado (`SUPERADMIN_JWT_SECRET`), `require_superadmin`, engine propio atado a `DATABASE_URL`; `core/tenants.py` compartido CLI↔endpoint; CRUD de tenants (`routes/superadmin_tenants.py`, con auditoría); exención `/superadmin` en `TenantMiddleware`; frontend separado (`SuperadminApp` fuera de `TenantProvider`, login/tabla/detalle-edición); `tests/test_superadmin.py` (7 tests, aislación cruzada en ambos sentidos + rate limit + paridad CLI/endpoint) — suite total 17/17. Ver "Multi-Tenancy → Phase 3" para prerequisitos de deploy.
 
 **Cutover a producción — EN PROGRESO (no verificado en vivo todavía):**
 - [x] Backup de la base real, `alembic stamp 0001`, rol `app_user` bootstrapeado, `APP_DATABASE_URL`/`DEFAULT_TENANT_SLUG`/`JWT_SECRET_KEY` seteadas en Railway, Start Command del backend con `alembic upgrade head`, fix de migración 0004/0005 pusheado a `main`.
@@ -688,7 +759,8 @@ match still takes precedence over it).
 - [ ] **Retirar `DEFAULT_TENANT_SLUG`** cuando se conecte el wildcard DNS real — ver `docs/CUTOVER.md` sección 11.
 
 **Next to build:**
-- [ ] **Fases 3–4 del multi-tenant:** UI de administración de tenants, wildcard DNS/subdominios reales conectados (el código ya soporta el esquema, falta la infraestructura), onboarding self-service, facturación
+- [ ] **Mergear `feature/superadmin` → `main` + deployar Fase 3** — requiere los prerequisitos de "Multi-Tenancy → Phase 3" (`DATABASE_URL` superuser, `SUPERADMIN_JWT_SECRET`, correr `crear_operador.py` en prod).
+- [ ] **Fase 4 del multi-tenant:** wildcard DNS/subdominios reales conectados (el código ya soporta el esquema, falta la infraestructura), onboarding self-service, facturación
 - [ ] `dashboard_metrics` feature flag no está aplicada todavía en `DashboardHome.js` (el PieChart de ventas es visible para cualquier plan)
 - [ ] `PortalPage.js`'s `canModify(cita)` sigue con 2h hardcodeado en vez de leer `useTenant()` (solo afecta cuándo se deshabilitan los botones en la UI — el backend ya usa `tenant.get_config`, así que no es un hueco de seguridad)
 - [ ] **Notificaciones WhatsApp** — n8n webhook → WhatsApp API (Meta) recordatorio 24h antes de la cita
