@@ -29,6 +29,7 @@ from routes import medico_portal
 from routes import ventas
 from routes import gastos
 from routes import tenant as tenant_router
+from routes import superadmin_auth
 from routes.citas import procesar_citas_vencidas
 from services.email import send_recordatorio
 
@@ -294,6 +295,12 @@ app.include_router(citas.router, prefix="/citas", tags=["citas"])
 app.include_router(pagos.router, prefix="/pagos", tags=["pagos"])
 app.include_router(portal.router, prefix="/portal", tags=["portal"])
 app.include_router(tenant_router.router, prefix="/tenant", tags=["tenant"])
+
+# Platform-level superadmin surface (Fase 3) — NOT gated by tenant/feature; its
+# own auth (require_superadmin) and DB connection (core/superadmin_db.py).
+# Exempted from tenant resolution by TenantMiddleware (path starts with
+# /superadmin). superadmin_tenants (CRUD) is mounted here too in sub-phase 3.3.
+app.include_router(superadmin_auth.router, prefix="/superadmin/auth", tags=["superadmin-auth"])
 
 # Tier "completo" only — see core/features.py:PLAN_FEATURES. Tier "basico"
 # routers (citas, pacientes, pagos, portal, auth) are available to every

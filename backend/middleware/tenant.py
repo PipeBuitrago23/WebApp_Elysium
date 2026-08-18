@@ -66,9 +66,15 @@ class TenantMiddleware(BaseHTTPMiddleware):
     """
 
     async def dispatch(self, request: Request, call_next):
-        if request.url.path == "/health":
-            # Deployment/orchestrator healthchecks hit this with no tenant
-            # context at all (raw IP, internal hostname) — must never 404.
+        if request.url.path == "/health" or request.url.path.startswith("/superadmin"):
+            # /health: deployment/orchestrator healthchecks hit this with no
+            # tenant context at all (raw IP, internal hostname) — must never 404.
+            # /superadmin/*: platform-level routes that operate ACROSS all
+            # tenants (Fase 3) — they must not be tied to a single resolved
+            # tenant. Their gate is require_superadmin + their own DB connection
+            # (core/superadmin_db.py, DATABASE_URL), not the host. Path-based
+            # exemption works in every environment (local, and Railway before
+            # wildcard DNS), unlike keying on an `admin.` host.
             return await call_next(request)
 
         host = (request.headers.get("host") or "").split(":")[0]
