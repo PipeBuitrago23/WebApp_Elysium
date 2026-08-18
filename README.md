@@ -2,7 +2,7 @@
 
 Aplicación web para la gestión de citas, planes y pacientes de una clínica de fisioterapia y pilates. Incluye panel de administración completo y portal de autogestión para pacientes.
 
-> **En conversión a multi-tenant** (rama `feature/multi-tenant`, sobre `main`) — Fase 1 de 4 completa: capa de datos, Row-Level Security y sistema de configuración por tenant. **Fase 2 (routing por subdominio) completa** — frontend resuelve la URL del backend y el tenant en runtime, backend rechaza slugs reservados/tenants suspendidos, CORS dinámico por subdominio, correos con branding real por tenant, y script `crear_tenant.py` para dar de alta un tenant sin SQL a mano. Elysium sigue siendo el único tenant en la práctica — falta conectar wildcard DNS real (Fase 3+) para que el esquema de subdominios funcione en producción. Ver la sección "Multi-tenancy" más abajo.
+> **Multi-tenant — Fases 1 y 2 completas, ya mergeado a `main`.** Capa de datos + Row-Level Security + config por tenant (Fase 1); routing por subdominio, CORS dinámico, branding por tenant en correos y script `crear_tenant.py` (Fase 2). Railway despliega desde `main`. **Cutover a producción en progreso** (migrar el cliente real Elysium al stack multi-tenant como primer tenant) — el procedimiento y su estado están en [`docs/CUTOVER.md`](docs/CUTOVER.md). Elysium sigue siendo el único tenant; falta conectar wildcard DNS real (Fase 3+) para que los subdominios funcionen en producción. Ver la sección "Multi-tenancy" más abajo.
 
 ---
 
@@ -100,7 +100,7 @@ docker compose down -v
 | `PORTAL_URL` | Override explícito de la URL del portal en los correos (si no se configura, se arma con `BASE_DOMAIN` + el slug del tenant; si tampoco hay `BASE_DOMAIN`, cae a localhost) | `https://frontend.up.railway.app/portal` |
 | `CLINIC_MAPS_URL` | Link de Google Maps a la ubicación de la clínica | `https://share.google/EgQMvc66qfIIYYDZM` |
 | `RAILWAY_ENVIRONMENT` | Activa modo producción (deshabilita /docs) | `production` |
-| `APP_DATABASE_URL` | Conexión de la app en runtime como `app_user` (no-superusuario) — necesaria para que Row-Level Security restrinja algo. Sin ella cae a `DATABASE_URL` (admin) con un warning en el log. | `postgresql://app_user:pass@host:5432/db` |
+| `APP_DATABASE_URL` | Conexión de la app en runtime como `app_user` (no-superusuario) — necesaria para que Row-Level Security restrinja algo. En dev cae a `DATABASE_URL` con un warning; en **`production` su ausencia es un error duro de arranque** (correr como superuser bypassearía RLS). | `postgresql://app_user:pass@host:5432/db` |
 | `BASE_DOMAIN` | Dominio base real (Fase 2.4/2.5) — controla el `allow_origin_regex` de CORS (`https://<slug>.<BASE_DOMAIN>` queda permitido automáticamente) y el link de portal en los correos por tenant. Sin configurar, CORS solo permite `localhost:3000` y los correos caen al comportamiento anterior. Reemplaza a `ALLOWED_ORIGINS` (ya no se lee). | `elysium.app` |
 
 > **Correos:** Si `RESEND_API_KEY` no está configurada, los correos se registran en el log con nivel `WARNING` y **no se envían**. Railway bloquea el puerto SMTP 587, por eso se usa Resend API (HTTP) en lugar de Gmail SMTP.
@@ -134,7 +134,9 @@ WebApp_Elysium/
 ├── backend/
 │   ├── main.py              # App factory · CORS dinámico (BASE_DOMAIN) · TenantMiddleware · lifespan (seeds + jobs asyncio por tenant)
 │   ├── database.py          # Engine SQLAlchemy (APP_DATABASE_URL) · SessionLocal · get_db() · current_tenant_id
-│   ├── alembic/             # Migraciones (0001 baseline · 0002 multi-tenant schema · 0003 Row-Level Security)
+│   ├── alembic/             # Migraciones 0001 baseline · 0002 multi-tenant schema · 0003 RLS ·
+│   │                        #   0004 pagos.fecha_inicio · 0005 ventas↔pago link (0004/0005 hacen
+│   │                        #   DISABLE/ENABLE RLS alrededor del backfill — ver Regla #17 en CLAUDE.md)
 │   ├── limiter.py           # Instancia compartida de slowapi
 │   ├── scripts/
 │   │   ├── bootstrap_app_role.sql  # Crea el rol app_user que necesita RLS — correr una vez por ambiente
@@ -334,8 +336,7 @@ docker compose exec backend pytest tests/test_tenant_isolation.py -v
 
 ## Pendiente
 
+- [ ] **Cutover a producción — EN PROGRESO** — verificar el redeploy en vivo (alembic en `0005`, tablas `tenants`/`servicios`, `/health`, conteos); alinear `DATABASE_URL` al superuser `postgres`; retirar `DEFAULT_TENANT_SLUG` al conectar wildcard DNS. Estado y pasos completos en [`docs/CUTOVER.md`](docs/CUTOVER.md).
 - [ ] **Fases 3–4 del multi-tenant** — UI de administración de tenants, conectar wildcard DNS/subdominios reales (el código ya soporta el esquema desde la Fase 2), onboarding self-service, facturación
 - [ ] **Notificaciones WhatsApp** — n8n webhook → API de WhatsApp (Meta) · recordatorio 24h antes de la cita
 - [ ] Configurar `PORTAL_URL` en Railway apuntando al frontend para que el botón "Ver mi portal" en los correos lleve a la URL correcta en producción
-- [ ] Actualizar el Start Command del backend en Railway para incluir `alembic upgrade head` antes de `uvicorn` (cambio manual pendiente en el dashboard de Railway)
-- [ ] Reemplazar `main` en Railway con `feature/multi-tenant` para el cliente real — requiere su propio plan (backup, ventana de mantenimiento, Start Command)

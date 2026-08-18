@@ -11,6 +11,21 @@ Antes de ejecutar esto, confirmar que `feature/multi-tenant` está en el
 estado que se quiere desplegar (Fase 1 y Fase 2 completas — ver `CLAUDE.md`)
 y que no hay trabajo pendiente sin comitear.
 
+> **Estado del cutover (al cierre de la última sesión) — EN PROGRESO, no
+> verificado en vivo todavía.** Ya hecho: `feature/multi-tenant` mergeado a
+> `main`; backup de la base real; `alembic stamp 0001`; rol `app_user`
+> bootstrapeado; `APP_DATABASE_URL`, `DEFAULT_TENANT_SLUG=elysium` y
+> `JWT_SECRET_KEY` (rotada) seteadas en Railway; Start Command del backend con
+> `alembic upgrade head`; fix de migración `0004`/`0005` (RLS-bypass en el
+> backfill) pusheado a `main`. **Pendiente:** verificar el redeploy en vivo
+> (alembic en `0005`, tablas `tenants`/`servicios`, `/health`, conteos — ver
+> sección 9); idealmente alinear `DATABASE_URL` al superuser `postgres` (ver
+> "Rol que corre las migraciones"); y, más adelante, retirar
+> `DEFAULT_TENANT_SLUG` al conectar wildcard DNS (sección 11). Al momento de
+> escribir esto, el backend de producción estaba en 502 mientras se resolvían
+> estos pasos — la base real quedó intacta en `0001` (el fail-safe frenó los
+> deploys antes de escribir).
+
 ## 0. Resumen de lo que cambia
 
 | | Antes (`main`, hoy en producción) | Después (`feature/multi-tenant`) |
@@ -144,17 +159,44 @@ backend/requirements.txt` y correr `alembic` directo — cualquier entorno con
 el código de `backend/` y sus dependencias sirve, no hace falta el
 contenedor real de producción.)
 
+### Rol que corre las migraciones — DEBE bypassear RLS (aprendido en el cutover real)
+
+Alembic corre con `DATABASE_URL`, y **ese rol tiene que bypassear Row-Level
+Security** — o sea, ser el superuser `postgres` (o un rol `BYPASSRLS`). No es
+un detalle: la 0003 pone `FORCE ROW LEVEL SECURITY`, que somete **hasta al
+dueño de las tablas** a la política `tenant_isolation`. Una migración nunca
+setea `app.tenant_id`, así que si corre bajo RLS, cualquier `UPDATE` de
+backfill sobre una tabla tenant-scoped **no ve ninguna fila** → actualiza 0
+filas → un `SET NOT NULL` posterior sobre esa columna falla con
+`column ... contains null values`. Alembic corre todo en una transacción, así
+que el fallo revierte 0002→0005 y la base queda en 0001, en crash-loop.
+
+**Esto pasó en el cutover real.** Alguien hizo `ALTER TABLE ... OWNER TO
+app_user` y `DATABASE_URL` terminó apuntando a `app_user` (no-superuser). La
+0005 (backfill de `ventas.fecha_inicio`) fallaba exactamente así.
+
+Dos guardas, hoy ambas en su lugar:
+1. **Config (esta guía):** `DATABASE_URL` = superuser `postgres`. Es lo
+   correcto por diseño.
+2. **Código (ya pusheado):** `0004`/`0005` desactivan RLS solo alrededor del
+   backfill (`DISABLE` → `UPDATE` → `ENABLE`+`FORCE`), así corren limpio sin
+   importar el rol. Para un superuser es un no-op inofensivo.
+
+Con cualquiera de las dos, el deploy migra bien; tenerlas ambas es cinturón y
+tiradores. Verificado end-to-end contra una copia real de producción (como
+`app_user` y como superuser). Ver `CLAUDE.md` → Critical Design Rule #17.
+
 ## 6. Variables de entorno requeridas en Railway (backend)
 
 | Variable | Acción | Nota |
 |---|---|---|
-| `DATABASE_URL` | Ya existe (`${{Postgres.DATABASE_URL}}`) | Sin cambios — sigue siendo la conexión admin que usa Alembic |
+| `DATABASE_URL` | **Debe ser el superuser `postgres`** (`${{Postgres.DATABASE_URL}}`) | Es la conexión que usa Alembic. **Tiene que bypassear RLS** — ver "Rol que corre las migraciones" abajo. Si apunta a `app_user` (no-superuser), las migraciones con backfill fallan (pasó en el cutover real). |
 | `APP_DATABASE_URL` | **Agregar** | El valor generado en el paso 4. Sin esta variable el backend en producción **ya no arranca** (falla duro — ver `database.py`, agregado en esta misma preparación) |
 | `RAILWAY_ENVIRONMENT` | Verificar que ya esté en `production` | Railway la setea sola normalmente; confirmarla — de ella depende el fallo duro de `APP_DATABASE_URL` y el bloqueo de `/docs` |
 | `ALLOWED_ORIGINS` | Ya existe, dejar como está | `https://webappelysium-production.up.railway.app,https://marvelous-illumination-production-a83b.up.railway.app` (o los dominios reales vigentes) — se sigue leyendo igual que antes, sumado ahora a `localhost:3000` internamente |
 | `BASE_DOMAIN` | **No configurar todavía** | Solo tiene sentido una vez haya wildcard DNS real apuntando a Railway (Fase 3+). Configurarla antes de tener esos subdominios no rompe nada (`ALLOWED_ORIGINS` sigue cubriendo el frontend real), pero tampoco aporta nada todavía |
 | `DEFAULT_TENANT_SLUG` | **Agregar — `elysium`** | **Obligatoria para este cutover, TEMPORAL.** Sin `Host` real que resuelva a un tenant (no hay wildcard DNS todavía), toda petición 404earía sin este fallback — ver `middleware/tenant.py` y `CLAUDE.md` → "DEFAULT_TENANT_SLUG — temporary cutover bridge". Cada vez que se use, queda un `WARNING` en los logs de Railway con el `Host` que no resolvió — revisar esos logs después del deploy para confirmar que efectivamente se está usando (y para tener una señal de cuándo dejar de necesitarla). **Retirar esta variable en la Fase 11 (DNS), no antes** |
-| `JWT_SECRET_KEY` | Sin cambios | |
+| `JWT_SECRET_KEY` | **Rotar** | El valor viejo estaba commiteado en texto plano en `DEPLOY_NOTES.md` (repo público) — con él se podían forjar tokens de admin sin login. Generar uno nuevo (`openssl rand -hex 32`) y ponerlo acá. Rotarlo invalida cualquier token forjado; efecto colateral: cierra sesiones activas. |
 | `RESEND_API_KEY` / `RESEND_FROM` | Verificar que sigan configuradas | Si no lo están, los correos quedan en modo log (no se envían) — mismo comportamiento de siempre, no bloquea el arranque |
 | `PORTAL_URL` | **Agregar si no existe** | Apuntar al frontend real (`https://marvelous-illumination-production-a83b.up.railway.app/portal` o el dominio vigente) — sin esto, el link "Ver mi portal" de los correos apunta a `localhost:3000` en producción. Ya estaba pendiente antes de este cutover (ver `CLAUDE.md` → "Next to build") |
 | `CLINIC_MAPS_URL` | Verificar que siga configurada | |

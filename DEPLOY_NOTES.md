@@ -2,6 +2,15 @@
 
 > Fecha: 24 de junio de 2026
 
+> **Este documento describe el despliegue ORIGINAL single-tenant (junio 2026).**
+> Para el cutover al stack **multi-tenant** (que es lo que corre en `main` hoy)
+> — backup, rol `app_user`, `alembic stamp 0001`, variables de entorno,
+> Start Command con `alembic upgrade head`, verificación y rollback — ver
+> [`docs/CUTOVER.md`](docs/CUTOVER.md), que está actualizado y refleja el
+> estado real del cutover. En particular: `DATABASE_URL` debe ser el superuser
+> `postgres` (Alembic tiene que bypassear RLS), y `APP_DATABASE_URL` es
+> obligatoria en producción (arranque falla sin ella).
+
 ---
 
 ## Resumen
