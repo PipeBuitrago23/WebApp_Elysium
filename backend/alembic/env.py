@@ -18,6 +18,7 @@ from models.cita import Cita  # noqa: F401
 from models.pago import Pago  # noqa: F401
 from models.venta import Venta  # noqa: F401
 from models.gasto import Gasto  # noqa: F401
+from models.operador import Operador  # noqa: F401
 
 config = context.config
 
