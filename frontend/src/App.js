@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { TenantProvider, useTenant } from './context/TenantContext';
+import SuperadminApp from './SuperadminApp';
 import PrivateRoute from './components/PrivateRoute';
 import MedicoRoute from './components/MedicoRoute';
 import FeatureRoute from './components/FeatureRoute';
@@ -205,6 +206,19 @@ function HabeasDataModal() {
 // ── App ───────────────────────────────────────────────────────────────────────
 
 function App() {
+  // El panel superadmin es un árbol aparte, FUERA de TenantProvider/AuthProvider
+  // (no tiene tenant). Se ramifica por host o por path: hoy se entra por
+  // <frontend>/superadmin (path); con wildcard DNS se entrará por
+  // admin.<BASE_DOMAIN>/ (host, path raíz) — ambos casos cubiertos. Así el
+  // TenantProvider —que hace GET /tenant/config al montar— nunca corre en el
+  // panel superadmin, donde no hay tenant que resolver.
+  const esSuperadmin =
+    window.location.hostname.split('.')[0] === 'admin' ||
+    window.location.pathname.startsWith('/superadmin');
+  if (esSuperadmin) {
+    return <SuperadminApp />;
+  }
+
   return (
     <TenantProvider>
       <AuthProvider>

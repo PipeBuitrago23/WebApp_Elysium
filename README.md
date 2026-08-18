@@ -2,7 +2,7 @@
 
 Aplicación web para la gestión de citas, planes y pacientes de una clínica de fisioterapia y pilates. Incluye panel de administración completo y portal de autogestión para pacientes.
 
-> **Multi-tenant — Fases 1 y 2 completas, ya mergeado a `main`.** Capa de datos + Row-Level Security + config por tenant (Fase 1); routing por subdominio, CORS dinámico, branding por tenant en correos y script `crear_tenant.py` (Fase 2). Railway despliega desde `main`. **Cutover a producción en progreso** (migrar el cliente real Elysium al stack multi-tenant como primer tenant) — el procedimiento y su estado están en [`docs/CUTOVER.md`](docs/CUTOVER.md). Elysium sigue siendo el único tenant; falta conectar wildcard DNS real (Fase 3+) para que los subdominios funcionen en producción. Ver la sección "Multi-tenancy" más abajo.
+> **Multi-tenant — Fases 1 y 2 en `main`; Fase 3 (panel superadmin) lista en `feature/superadmin`.** Capa de datos + Row-Level Security + config por tenant (Fase 1); routing por subdominio, CORS dinámico, branding por tenant en correos y script `crear_tenant.py` (Fase 2). Railway despliega desde `main`. **Fase 3:** panel superadmin (UI para dar de alta/editar tenants sin la terminal) — code-complete en `feature/superadmin`, aún sin mergear/deployar (ver "Panel Superadmin" abajo). **Cutover a producción en progreso** — ver [`docs/CUTOVER.md`](docs/CUTOVER.md). Elysium sigue siendo el único tenant; falta conectar wildcard DNS real (Fase 4) para que los subdominios funcionen en producción. Ver la sección "Multi-tenancy" más abajo.
 
 ---
 
@@ -102,6 +102,7 @@ docker compose down -v
 | `RAILWAY_ENVIRONMENT` | Activa modo producción (deshabilita /docs) | `production` |
 | `APP_DATABASE_URL` | Conexión de la app en runtime como `app_user` (no-superusuario) — necesaria para que Row-Level Security restrinja algo. En dev cae a `DATABASE_URL` con un warning; en **`production` su ausencia es un error duro de arranque** (correr como superuser bypassearía RLS). | `postgresql://app_user:pass@host:5432/db` |
 | `BASE_DOMAIN` | Dominio base real (Fase 2.4/2.5) — controla el `allow_origin_regex` de CORS (`https://<slug>.<BASE_DOMAIN>` queda permitido automáticamente) y el link de portal en los correos por tenant. Sin configurar, CORS solo permite `localhost:3000` y los correos caen al comportamiento anterior. Reemplaza a `ALLOWED_ORIGINS` (ya no se lee). | `elysium.app` |
+| `SUPERADMIN_JWT_SECRET` | Fase 3 (panel superadmin) — secreto de firma de los JWT de superadmin, **distinto** de `JWT_SECRET_KEY` para aislar el blast-radius. Si no se configura, cae a `JWT_SECRET_KEY` con un warning. | cadena aleatoria de 32+ chars |
 
 > **Correos:** Si `RESEND_API_KEY` no está configurada, los correos se registran en el log con nivel `WARNING` y **no se envían**. Railway bloquea el puerto SMTP 587, por eso se usa Resend API (HTTP) en lugar de Gmail SMTP.
 
@@ -136,14 +137,17 @@ WebApp_Elysium/
 │   ├── database.py          # Engine SQLAlchemy (APP_DATABASE_URL) · SessionLocal · get_db() · current_tenant_id
 │   ├── alembic/             # Migraciones 0001 baseline · 0002 multi-tenant schema · 0003 RLS ·
 │   │                        #   0004 pagos.fecha_inicio · 0005 ventas↔pago link (0004/0005 hacen
-│   │                        #   DISABLE/ENABLE RLS alrededor del backfill — ver Regla #17 en CLAUDE.md)
+│   │                        #   DISABLE/ENABLE RLS alrededor del backfill — ver Regla #17 en CLAUDE.md) ·
+│   │                        #   0006 operadores (Fase 3, en feature/superadmin)
 │   ├── limiter.py           # Instancia compartida de slowapi
 │   ├── scripts/
 │   │   ├── bootstrap_app_role.sql  # Crea el rol app_user que necesita RLS — correr una vez por ambiente
-│   │   └── crear_tenant.py  # CLI de alta de tenant (Fase 2.6) — tenant + 2 servicios + admin en una transacción,
-│   │                        #   valida slug contra RESERVED_SLUGS, --dry-run, imprime contraseña temporal
+│   │   ├── crear_tenant.py  # CLI de alta de tenant (Fase 2.6) — tenant + 2 servicios + admin en una transacción,
+│   │   │                    #   valida slug contra RESERVED_SLUGS, --dry-run, imprime contraseña temporal
+│   │   └── crear_operador.py # CLI de alta de superadmin (Fase 3) — bootstrap del primer operador
 │   ├── auth/
-│   │   └── jwt.py           # create_access_token · get_current_user (valida tenant_id del JWT) · require_admin · require_medico
+│   │   ├── jwt.py           # create_access_token · get_current_user (valida tenant_id; 401 si tipo=superadmin) · require_admin · require_medico
+│   │   └── superadmin.py    # Fase 3 — create_superadmin_token · require_superadmin (secreto separado)
 │   ├── core/
 │   │   ├── features.py      # PLAN_FEATURES · features_efectivas() · require_feature() — feature flags por plan
 │   │   ├── servicios.py     # capacidad() · tipos_validos() · hora_valida() — reemplaza los dicts hardcodeados
@@ -302,6 +306,22 @@ Ensayo de migración de datos reales (realizado, sin tocar producción): se rest
 
 Detalle completo de las 5 sub-fases y su verificación: `CLAUDE.md` → sección "Multi-Tenancy → Phase 2".
 
+### Panel Superadmin (Fase 3 — en `feature/superadmin`, sin mergear todavía)
+
+UI a nivel plataforma para dar de alta y editar tenants sin la terminal: listar tenants, crear uno (mismo resultado que `crear_tenant.py`), y cambiar plan / estado (suspender-reactivar) / config / branding / features. **No** es autoservicio para el cliente — sigue siendo el dueño de la plataforma quien da de alta cada negocio, solo que desde una pantalla. Facturación/registro público son Fase 4.
+
+- **Identidad separada:** tabla `operadores` (sin `tenant_id`, sin RLS; `app_user` no tiene acceso). Se crea el primer operador con `crear_operador.py`.
+- **Auth aislada:** login propio (`POST /superadmin/auth/login`, rate-limited), JWT con `tipo=superadmin` firmado con `SUPERADMIN_JWT_SECRET` (secreto separado). Un JWT de superadmin nunca sirve en rutas de tenant y viceversa — cubierto por `tests/test_superadmin.py`.
+- **Bypass de RLS a propósito:** las rutas de superadmin usan su propio engine atado a `DATABASE_URL` (que debe bypassear RLS, como Alembic), para ver/modificar todos los tenants a la vez.
+- **Frontend separado:** árbol React aparte (`SuperadminApp`, fuera de `TenantProvider`); se entra por `<frontend>/superadmin` (o `admin.<BASE_DOMAIN>` con wildcard DNS).
+
+Para deployar la Fase 3: `DATABASE_URL` = superuser `postgres`, setear `SUPERADMIN_JWT_SECRET`, correr `crear_operador.py`. Detalle: `CLAUDE.md` → "Multi-Tenancy → Phase 3".
+
+```bash
+# Bootstrap del primer superadmin
+docker compose exec backend python scripts/crear_operador.py --email dueno@plataforma.com --nombre "Felipe"
+```
+
 ### Bootstrap del rol `app_user` (una vez por ambiente)
 
 ```bash
@@ -337,6 +357,7 @@ docker compose exec backend pytest tests/test_tenant_isolation.py -v
 ## Pendiente
 
 - [ ] **Cutover a producción — EN PROGRESO** — verificar el redeploy en vivo (alembic en `0005`, tablas `tenants`/`servicios`, `/health`, conteos); alinear `DATABASE_URL` al superuser `postgres`; retirar `DEFAULT_TENANT_SLUG` al conectar wildcard DNS. Estado y pasos completos en [`docs/CUTOVER.md`](docs/CUTOVER.md).
-- [ ] **Fases 3–4 del multi-tenant** — UI de administración de tenants, conectar wildcard DNS/subdominios reales (el código ya soporta el esquema desde la Fase 2), onboarding self-service, facturación
+- [ ] **Mergear `feature/superadmin` → `main` y deployar la Fase 3** — prerequisitos: `DATABASE_URL` superuser, `SUPERADMIN_JWT_SECRET`, correr `crear_operador.py` en prod (ver "Panel Superadmin" arriba).
+- [ ] **Fase 4 del multi-tenant** — conectar wildcard DNS/subdominios reales (el código ya soporta el esquema desde la Fase 2), onboarding self-service, facturación
 - [ ] **Notificaciones WhatsApp** — n8n webhook → API de WhatsApp (Meta) · recordatorio 24h antes de la cita
 - [ ] Configurar `PORTAL_URL` en Railway apuntando al frontend para que el botón "Ver mi portal" en los correos lleve a la URL correcta en producción

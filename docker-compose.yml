@@ -36,6 +36,9 @@ services:
       # (password below must match what you set there for local dev).
       - APP_DATABASE_URL=postgresql://app_user:app_user_dev_pw@db:5432/elysium_agenda
       - JWT_SECRET_KEY=dev-secret-key-change-in-production
+      # Superadmin panel (Fase 3) — secreto de firma SEPARADO del de los tenants,
+      # a propósito distinto acá para que dev ejercite la aislación por firma.
+      - SUPERADMIN_JWT_SECRET=dev-superadmin-secret-change-in-production
       # Email (local dev leaves these blank → emails go to the log, not sent)
       - GMAIL_USER=
       - GMAIL_APP_PASSWORD=

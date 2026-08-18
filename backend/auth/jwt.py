@@ -39,6 +39,19 @@ def get_current_user(request: Request, token: str = Depends(oauth2_scheme)) -> d
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    # A superadmin token (tipo == "superadmin", see auth/superadmin.py) must
+    # NEVER be accepted by a tenant route, even if it somehow verified — those
+    # tokens carry no tenant_id and belong only to the /superadmin surface.
+    # (With a distinct SUPERADMIN_JWT_SECRET it wouldn't verify here at all;
+    # this is the backstop for the degraded same-secret fallback.) Same generic
+    # 401 so nothing leaks which check failed.
+    if payload.get("tipo") == "superadmin":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token inválido o expirado",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     # The host resolved by TenantMiddleware is authoritative — the JWT's own
     # tenant_id claim is only ever checked against it, never trusted alone.
     # Same generic message as an invalid signature, so neither response
